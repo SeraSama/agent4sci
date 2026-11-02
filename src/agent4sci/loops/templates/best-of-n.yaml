@@ -1,0 +1,38 @@
+id: best-of-n
+name: Best-of-N（并行尝试 + 评判）
+category: pattern
+description: 并行做 N 次独立尝试，再由评审选出最佳方案
+inputs:
+  task: {label: 任务, type: text, required: true}
+settings: {max_cost_usd: 10}
+nodes:
+  - {id: start, type: start, label: 开始, position: {x: 0, y: 0}}
+  - id: attempts
+    type: parallel
+    label: 并行尝试
+    position: {x: -60, y: 110}
+    width: 420
+    height: 170
+    config: {items: "range(3)", max_concurrency: 3}
+  - id: attempt
+    type: agent
+    label: 独立尝试
+    parent: attempts
+    position: {x: 60, y: 50}
+    config:
+      harness: assistant
+      prompt: "{{inputs.task}}\n\n这是第 {{index + 1}} 次独立尝试，结果写入 attempts/attempt-{{index + 1}}.md。"
+      outputs: []
+  - id: judge
+    type: agent
+    label: 评判
+    position: {x: 0, y: 320}
+    config:
+      harness: reviewer
+      prompt: "阅读 attempts/ 下的所有尝试，选出最好的一个并说明理由。任务：{{inputs.task}}"
+      output_schema: {type: object, properties: {best: {type: string}, reason: {type: string}}, required: [best, reason]}
+  - {id: end, type: end, label: 结束, position: {x: 0, y: 430}}
+edges:
+  - {source: start, target: attempts}
+  - {source: attempts, target: judge}
+  - {source: judge, target: end}

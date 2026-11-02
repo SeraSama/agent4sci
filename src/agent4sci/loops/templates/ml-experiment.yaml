@@ -1,0 +1,95 @@
+id: ml-experiment
+name: ML 实验（autoresearch 式迭代）
+category: pipeline
+description: 文献与想法 → 选方向 → 方案（冻结评测）→ 指标驱动的迭代（改进才保留，否则回滚）→ 写作⟲评审
+inputs:
+  question: {label: 研究问题, type: text, required: true}
+settings: {max_cost_usd: 30, auto_commit: true}
+nodes:
+  - {id: start, type: start, label: 开始, position: {x: 0, y: 0}}
+  - id: literature
+    type: agent
+    label: 快速文献调研
+    position: {x: 0, y: 110}
+    config: {harness: librarian, role: librarian, outputs: [lit/review.md], max_turns: 40,
+             prompt: "围绕「{{inputs.question}}」做一次快速但扎实的文献调研（重点：强基线、常用数据集与评测），写出 lit/review.md。"}
+  - id: ideas
+    type: tournament
+    label: 想法锦标赛
+    position: {x: 0, y: 220}
+    config: {n: 5, top_k: 3, prompt: "针对「{{inputs.question}}」提出能在本机算力下验证的改进想法。"}
+  - id: choose
+    type: human
+    label: 选择方向
+    position: {x: 0, y: 330}
+    config: {kind: choice, title: 选择要推进的想法, options_expr: nodes.ideas.output.options, show_files: [plan/hypotheses.md]}
+  - id: design
+    type: agent
+    label: 方案与评测脚本
+    position: {x: 0, y: 440}
+    config: {harness: experimenter, role: designer, outputs: [plan/experiment_plan.md, code/eval/evaluate.py], checkpoint: true,
+             prompt: "选定：{{nodes.choose.output.choice or nodes.ideas.output.options[0]}}\n写出方案 plan/experiment_plan.md 与评测脚本 code/eval/evaluate.py（输出 results/main.json，其中 primary_metric 为主指标，越大越好）。先实现并跑通基线。"}
+  - {id: freeze, type: checks, label: 冻结评测, position: {x: 0, y: 550}, config: {protect: [code/eval, plan/experiment_plan.md]}}
+  - id: iterate
+    type: loop
+    label: 指标驱动迭代
+    position: {x: -60, y: 660}
+    width: 420
+    height: 300
+    config:
+      max_iterations: 5
+      stall_patience: 2
+      keep_discard: true
+      max_cost_usd: 15
+      metric: {name: primary_metric, file: results/main.json, pointer: /primary_metric, goal: max}
+  - id: improve
+    type: agent
+    label: 做一处改进并评测
+    parent: iterate
+    position: {x: 60, y: 50}
+    config: {harness: experimenter, role: experimenter, outputs: [results/main.json], max_turns: 40,
+             prompt: "第 {{loop.iteration}} 轮。当前最佳 primary_metric：{{loop.best}}。历史：{{json([h.metric for h in loop.history])}}\n只做一处有针对性的改进，运行 code/eval/evaluate.py 更新 results/main.json，并在 notes/experiment-log.md 记录。"}
+  - id: gate
+    type: checks
+    label: 验证门
+    parent: iterate
+    position: {x: 60, y: 180}
+    config: {json_valid: [results/main.json], verify_protected: true}
+  - id: write_review
+    type: loop
+    label: 写作 ⟲ 评审
+    position: {x: -60, y: 1000}
+    width: 420
+    height: 320
+    config: {max_iterations: 3, until: "nodes.review.output.result.decision == 'accept'"}
+  - id: write
+    type: agent
+    label: 撰写论文
+    parent: write_review
+    position: {x: 60, y: 50}
+    config: {harness: writer, role: writer, outputs: [paper/paper.src.md, paper/paper.md],
+             prompt: "{{'根据评审意见修改：' + nodes.review.output.summary if loop.iteration > 1 else '撰写论文（含基线、消融与失败的尝试）。'}}"}
+  - id: review
+    type: agent
+    label: 评审
+    parent: write_review
+    position: {x: 60, y: 180}
+    config:
+      harness: reviewer
+      role: reviewer
+      prompt: 评审 paper/paper.md；特别检查评测是否被改动、基线是否公平、多种子方差。
+      output_schema: {type: object, properties: {decision: {enum: [accept, minor, major]}}, required: [decision]}
+  - {id: distill, type: distill, label: 技能沉淀, position: {x: 0, y: 1360}}
+  - {id: end, type: end, label: 结束, position: {x: 0, y: 1470}}
+edges:
+  - {source: start, target: literature}
+  - {source: literature, target: ideas}
+  - {source: ideas, target: choose}
+  - {source: choose, target: design}
+  - {source: design, target: freeze}
+  - {source: freeze, target: iterate}
+  - {source: improve, target: gate}
+  - {source: iterate, target: write_review}
+  - {source: write, target: review}
+  - {source: write_review, target: distill}
+  - {source: distill, target: end}

@@ -1,0 +1,39 @@
+id: review-revise
+name: 评审 → 修改
+category: pattern
+description: 对现有文稿反复评审与修改，直到评审接受
+inputs:
+  document: {label: 文稿路径, type: string, required: true, default: paper/paper.md}
+settings: {max_cost_usd: 8}
+nodes:
+  - {id: start, type: start, label: 开始, position: {x: 0, y: 0}}
+  - id: loop
+    type: loop
+    label: 评审循环
+    position: {x: -60, y: 110}
+    width: 420
+    height: 310
+    config: {max_iterations: 3, until: "nodes.review.output.result.decision == 'accept'"}
+  - id: review
+    type: agent
+    label: 评审
+    parent: loop
+    position: {x: 60, y: 50}
+    config:
+      harness: reviewer
+      role: reviewer
+      prompt: "评审 {{inputs.document}}。"
+      output_schema: {type: object, properties: {decision: {enum: [accept, minor, major]}, issues: {type: array, items: {type: string}}}, required: [decision, issues]}
+  - id: revise
+    type: agent
+    label: 修改
+    parent: loop
+    position: {x: 60, y: 180}
+    config:
+      harness: writer
+      prompt: "按评审意见修改 {{inputs.document}}：{{json(nodes.review.output.result.issues)}}"
+  - {id: end, type: end, label: 结束, position: {x: 0, y: 460}}
+edges:
+  - {source: start, target: loop}
+  - {source: review, target: revise, condition: "nodes.review.output.result.decision != 'accept'"}
+  - {source: loop, target: end}

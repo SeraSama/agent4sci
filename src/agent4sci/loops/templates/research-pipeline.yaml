@@ -1,0 +1,184 @@
+id: research-pipeline
+name: 完整科研流水线
+category: pipeline
+description: 研究简报 → 文献综述 → 想法锦标赛 → 选方向 → 预注册式方案（冻结）→ 实验循环（验证门）→ 分析 → 写作⟲评审 → 终审 → 技能沉淀与记忆
+inputs:
+  question: {label: 研究问题, type: text, required: true}
+  constraints: {label: 约束（数据、算力、时间等，可选）, type: text, required: false, default: "无特别约束"}
+settings: {max_cost_usd: 30, auto_commit: true}
+nodes:
+  - {id: start, type: start, label: 开始, position: {x: 0, y: 0}}
+  - id: scope
+    type: agent
+    label: 研究简报
+    position: {x: 0, y: 110}
+    config:
+      harness: assistant
+      role: scoper
+      outputs: [plan/brief.md]
+      checkpoint: true
+      prompt: "研究问题：{{inputs.question}}\n约束：{{inputs.constraints}}\n\n请写出研究简报 plan/brief.md。"
+  - id: literature
+    type: agent
+    label: 文献综述
+    position: {x: 0, y: 220}
+    config:
+      harness: librarian
+      role: librarian
+      outputs: [lit/review.md, references.bib]
+      prompt: "阅读 plan/brief.md，完成系统文献调研，写出 lit/review.md（引用必须来自 add_reference）。"
+  - id: ideas
+    type: tournament
+    label: 想法锦标赛
+    position: {x: 0, y: 330}
+    config:
+      n: 6
+      top_k: 3
+      prompt: "基于 plan/brief.md 与 lit/review.md 中指出的空白，针对研究问题「{{inputs.question}}」提出可检验的新假设。"
+  - id: choose
+    type: human
+    label: 选择方向
+    position: {x: 0, y: 440}
+    config:
+      kind: choice
+      title: 选择要推进的研究方向
+      message: "{{nodes.ideas.output.summary}}"
+      options_expr: nodes.ideas.output.options
+      show_files: [plan/hypotheses.md]
+  - id: design
+    type: agent
+    label: 实验方案
+    position: {x: 0, y: 550}
+    config:
+      harness: experimenter
+      role: designer
+      outputs: [plan/experiment_plan.md]
+      checkpoint: true
+      prompt: "选定的方向：{{nodes.choose.output.choice or nodes.ideas.output.options[0]}}\n研究者补充：{{nodes.choose.output.feedback or '无'}}\n\n请写出预注册式的实验/分析方案 plan/experiment_plan.md，并在 code/eval/ 写好评测脚本。"
+  - id: freeze
+    type: checks
+    label: 冻结方案
+    position: {x: 0, y: 660}
+    config:
+      artifacts: [plan/experiment_plan.md]
+      protect: [plan/experiment_plan.md, code/eval]
+  - id: experiment
+    type: loop
+    label: 实验循环
+    position: {x: -60, y: 770}
+    width: 420
+    height: 330
+    config:
+      max_iterations: 3
+      until: "nodes.gate.output.passed"
+      max_cost_usd: 12
+  - id: implement
+    type: agent
+    label: 实现并运行
+    parent: experiment
+    position: {x: 60, y: 50}
+    config:
+      harness: experimenter
+      role: experimenter
+      outputs: [results/main.json]
+      prompt: "按 plan/experiment_plan.md 实现并运行实验，把主要结果写入 results/main.json。第 {{loop.iteration}} 轮。{{'上一轮验证未通过：' + str(nodes.gate.output.errors) if loop.iteration > 1 else ''}}"
+  - id: gate
+    type: checks
+    label: 验证门
+    parent: experiment
+    position: {x: 60, y: 190}
+    config:
+      artifacts: [results/main.json]
+      json_valid: [results/main.json]
+      verify_protected: true
+  - id: analysis
+    type: agent
+    label: 结果分析
+    position: {x: 0, y: 1140}
+    config:
+      harness: analyst
+      role: analyst
+      outputs: [analysis/analysis.md]
+      prompt: "分析 results/ 中的结果，按预注册方案做统计检验并作图，写出 analysis/analysis.md。"
+  - id: write_review
+    type: loop
+    label: 写作 ⟲ 评审
+    position: {x: -60, y: 1250}
+    width: 420
+    height: 440
+    config:
+      max_iterations: 3
+      until: "nodes.review.output.result.decision == 'accept'"
+  - id: write
+    type: agent
+    label: 撰写论文
+    parent: write_review
+    position: {x: 60, y: 50}
+    config:
+      harness: writer
+      role: writer
+      outputs: [paper/paper.src.md, paper/paper.md]
+      prompt: "{{'根据评审意见修改论文：' + nodes.review.output.summary if loop.iteration > 1 else '撰写论文初稿。'}}"
+  - id: paper_checks
+    type: checks
+    label: 规则检查
+    parent: write_review
+    position: {x: 60, y: 170}
+    config:
+      citations: [paper/paper.md]
+      placeholders: [paper/paper.src.md]
+      numbers: [paper/paper.src.md]
+      findings: true
+      verify_protected: true
+  - id: review
+    type: agent
+    label: 同行评审
+    parent: write_review
+    position: {x: 60, y: 290}
+    config:
+      harness: reviewer
+      role: reviewer
+      outputs: [review/review.md]
+      prompt: "评审 paper/paper.md。自动规则检查的结果：{{nodes.paper_checks.output.summary}}"
+      output_schema:
+        type: object
+        properties:
+          decision: {enum: [accept, minor, major]}
+          issues:
+            type: array
+            items:
+              type: object
+              properties:
+                severity: {enum: [major, minor]}
+                stage: {type: string}
+                description: {type: string}
+        required: [decision, issues]
+  - id: final
+    type: human
+    label: 终审
+    position: {x: 0, y: 1730}
+    config:
+      kind: approve
+      title: 终审论文
+      message: "{{nodes.review.output.summary}}"
+      show_files: [paper/paper.md, review/review.md]
+  - {id: distill, type: distill, label: 技能沉淀, position: {x: 0, y: 1840}}
+  - {id: remember, type: memory, label: 整理记忆, position: {x: 0, y: 1950}, config: {action: consolidate}}
+  - {id: end, type: end, label: 结束, position: {x: 0, y: 2060}}
+edges:
+  - {source: start, target: scope}
+  - {source: scope, target: literature}
+  - {source: literature, target: ideas}
+  - {source: ideas, target: choose}
+  - {source: choose, target: design}
+  - {source: design, target: freeze}
+  - {source: freeze, target: experiment}
+  - {source: implement, target: gate}
+  - {source: experiment, target: analysis}
+  - {source: analysis, target: write_review}
+  - {source: write, target: paper_checks}
+  - {source: paper_checks, target: review}
+  - {source: write_review, target: final}
+  - {source: final, target: distill}
+  - {source: distill, target: remember}
+  - {source: remember, target: end}

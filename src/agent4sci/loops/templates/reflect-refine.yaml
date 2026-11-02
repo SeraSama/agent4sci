@@ -1,0 +1,43 @@
+id: reflect-refine
+name: 生成 → 批评 → 改进
+category: pattern
+description: 写出初稿，由独立的评审打分并给出建议，按建议改进，直到分数达到阈值
+inputs:
+  task: {label: 任务（产出写入 outputs/draft.md）, type: text, required: true}
+  threshold: {label: 目标分数（0–10）, type: number, required: false, default: 8}
+settings: {max_cost_usd: 8}
+nodes:
+  - {id: start, type: start, label: 开始, position: {x: 0, y: 0}}
+  - id: loop
+    type: loop
+    label: 改进循环
+    position: {x: -60, y: 110}
+    width: 420
+    height: 310
+    config: {max_iterations: 4, until: "nodes.critique.output.result.score >= float(inputs.threshold)"}
+  - id: draft
+    type: agent
+    label: 写作/改进
+    parent: loop
+    position: {x: 60, y: 50}
+    config:
+      harness: writer
+      outputs: [outputs/draft.md]
+      prompt: "{{inputs.task}}\n\n{{'按评审建议改进 outputs/draft.md：' + json(nodes.critique.output.result.suggestions) if loop.iteration > 1 else '写出初稿 outputs/draft.md。'}}"
+  - id: critique
+    type: agent
+    label: 评审打分
+    parent: loop
+    position: {x: 60, y: 180}
+    config:
+      harness: reviewer
+      prompt: "严格评审 outputs/draft.md 是否完成了任务：{{inputs.task}}。给 0–10 分和具体改进建议。"
+      output_schema:
+        type: object
+        properties: {score: {type: number, minimum: 0, maximum: 10}, suggestions: {type: array, items: {type: string}}}
+        required: [score, suggestions]
+  - {id: end, type: end, label: 结束, position: {x: 0, y: 460}}
+edges:
+  - {source: start, target: loop}
+  - {source: draft, target: critique}
+  - {source: loop, target: end}

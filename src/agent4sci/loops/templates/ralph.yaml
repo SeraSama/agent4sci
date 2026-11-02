@@ -1,0 +1,29 @@
+id: ralph
+name: Ralph 循环（反复推进直到完成）
+category: pattern
+description: 同一个任务提示反复执行；每轮读取进度文件、推进一步、更新进度，直到 Agent 报告完成或达到轮数上限
+inputs:
+  task: {label: 任务, type: text, required: true}
+settings: {max_cost_usd: 10}
+nodes:
+  - {id: start, type: start, label: 开始, position: {x: 0, y: 0}}
+  - id: loop
+    type: loop
+    label: 反复推进
+    position: {x: -60, y: 110}
+    width: 420
+    height: 190
+    config: {max_iterations: 10, until: "nodes.work.output.result.done"}
+  - id: work
+    type: agent
+    label: 推进一步
+    parent: loop
+    position: {x: 60, y: 50}
+    config:
+      harness: assistant
+      prompt: "{{inputs.task}}\n\n这是第 {{loop.iteration}} 轮。先阅读 notes/progress.md（如有）了解进展，推进下一步，然后更新 notes/progress.md。全部完成时 done=true。"
+      output_schema: {type: object, properties: {done: {type: boolean}, progress: {type: string}}, required: [done, progress]}
+  - {id: end, type: end, label: 结束, position: {x: 0, y: 340}}
+edges:
+  - {source: start, target: loop}
+  - {source: loop, target: end}

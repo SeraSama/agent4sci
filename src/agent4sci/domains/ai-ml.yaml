@@ -1,0 +1,11 @@
+id: ai-ml
+label: AI / 机器学习计算实验
+description: 想法 → 写代码跑实验 → 分析 → 写论文
+tools: [literature, research, python, shell]
+skill_tags: [ai-ml, ideation, writing]
+mcp: [arxiv]
+prompt: |
+  Domain notes (AI/ML experiments): check the Environment section for compute (often a laptop: prefer small
+  models, subsets and short runs; use Apple MPS or CUDA only if available). Always include strong, fairly tuned
+  baselines and ablations; fix seeds and report mean ± std over several seeds; never tune on the test split.
+  Log configs and metrics to results/*.json and use job_start for runs longer than a few minutes.

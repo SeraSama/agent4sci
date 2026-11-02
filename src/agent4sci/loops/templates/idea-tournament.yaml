@@ -1,0 +1,30 @@
+id: idea-tournament
+name: 想法锦标赛
+category: pattern
+description: 生成候选想法 → 多源新颖性检索与打分 → 两两 Elo 对比 → 人工挑选
+inputs:
+  topic: {label: 主题, type: text, required: true}
+settings: {max_cost_usd: 6}
+nodes:
+  - {id: start, type: start, label: 开始, position: {x: 0, y: 0}}
+  - id: ideas
+    type: tournament
+    label: 想法锦标赛
+    position: {x: 0, y: 110}
+    config: {n: 6, top_k: 3, prompt: "围绕「{{inputs.topic}}」提出新颖、可检验的研究想法。"}
+  - id: pick
+    type: human
+    label: 挑选
+    position: {x: 0, y: 220}
+    config: {kind: choice, title: 挑选最感兴趣的想法, options_expr: nodes.ideas.output.options, show_files: [plan/hypotheses.md]}
+  - id: note
+    type: memory
+    label: 记下选择
+    position: {x: 0, y: 330}
+    config: {action: write, scope: project, name: "选定的想法", body: "{{nodes.pick.output.choice or nodes.ideas.output.options[0]}}", description: 想法锦标赛的选择}
+  - {id: end, type: end, label: 结束, position: {x: 0, y: 440}}
+edges:
+  - {source: start, target: ideas}
+  - {source: ideas, target: pick}
+  - {source: pick, target: note}
+  - {source: note, target: end}

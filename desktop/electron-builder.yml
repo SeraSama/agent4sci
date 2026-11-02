@@ -1,0 +1,60 @@
+# electron-builder config. Build with the one-click scripts in ../packaging (they build the backend first):
+#   macOS:   packaging/build-mac.sh      → desktop/release/Agent4Sci-<version>-mac-arm64.dmg / .zip
+#   Windows: packaging\build-win.ps1     → desktop\release\Agent4Sci-Setup-<version>.exe
+appId: org.agent4sci.desktop
+productName: Agent4Sci
+copyright: Copyright © 2026 Agent4Sci contributors
+directories:
+  output: release
+  buildResources: build
+files:
+  - out/**/*
+  - package.json
+  - "!**/*.map"
+asar: true
+npmRebuild: false
+# The PyInstaller backend (plus bin/uv) lives next to the app code as <resources>/backend.
+extraResources:
+  - from: ../build/pyinstaller/dist/backend
+    to: backend
+    filter: ["**/*"]
+  - from: ../LICENSE
+    to: LICENSE
+electronLanguages: [zh_CN, zh-CN, en, en_US, en-US]
+
+mac:
+  target:
+    - target: dmg
+      arch: [arm64]
+    - target: zip
+      arch: [arm64]
+  category: public.app-category.education
+  icon: build/icon.icns
+  darkModeSupport: true
+  # Unsigned by default; build-mac.sh ad-hoc signs the bundle so it runs on Apple Silicon.
+  # For distribution set CSC_LINK / CSC_KEY_PASSWORD (Developer ID) and enable notarization (see README).
+  identity: null
+  hardenedRuntime: false
+  artifactName: ${productName}-${version}-mac-${arch}.${ext}
+  extendInfo:
+    LSApplicationCategoryType: public.app-category.education
+dmg:
+  title: ${productName} ${version}
+
+win:
+  target:
+    - target: nsis
+      arch: [x64]
+  icon: build/icon.ico
+  artifactName: ${productName}-Setup-${version}.${ext}
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: Agent4Sci
+  unicode: true
+  multiLanguageInstaller: true
+  installerLanguages: [zh_CN, en_US]
+  deleteAppDataOnUninstall: false

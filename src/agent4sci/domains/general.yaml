@@ -1,0 +1,10 @@
+id: general
+label: 通用：文献综述与数据分析
+description: 跨学科文献检索与综述、数据分析、报告撰写
+tools: [literature, research]
+skill_tags: [general, literature, writing, analysis]
+mcp: []
+prompt: |
+  Domain notes (general research): prefer systematic literature searches (several sources, explicit
+  inclusion criteria) and reproducible analyses (scripts in code/, outputs in results/). State the level of
+  evidence behind each claim.

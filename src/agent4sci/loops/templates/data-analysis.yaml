@@ -1,0 +1,76 @@
+id: data-analysis
+name: 数据分析
+category: pipeline
+description: 分析问题 → 预注册式分析方案（冻结）→ 分析循环（验证门）→ 报告写作⟲评审 → 终审
+inputs:
+  question: {label: 分析问题, type: text, required: true}
+  data: {label: 数据说明（放在 data/ 下的文件、来源）, type: text, required: false, default: "见 data/ 目录"}
+settings: {max_cost_usd: 15, auto_commit: true}
+nodes:
+  - {id: start, type: start, label: 开始, position: {x: 0, y: 0}}
+  - id: plan
+    type: agent
+    label: 分析方案
+    position: {x: 0, y: 110}
+    config: {harness: analyst, role: designer, outputs: [plan/experiment_plan.md], checkpoint: true,
+             prompt: "分析问题：{{inputs.question}}\n数据：{{inputs.data}}\n\n先检查数据（形状、缺失、单位），然后写出预注册式分析方案 plan/experiment_plan.md。"}
+  - {id: freeze, type: checks, label: 冻结方案, position: {x: 0, y: 220}, config: {protect: [plan/experiment_plan.md]}}
+  - id: analyze
+    type: loop
+    label: 分析循环
+    position: {x: -60, y: 330}
+    width: 420
+    height: 300
+    config: {max_iterations: 3, until: "nodes.gate.output.passed"}
+  - id: run
+    type: agent
+    label: 执行分析
+    parent: analyze
+    position: {x: 60, y: 50}
+    config: {harness: analyst, role: analyst, outputs: [results/main.json, analysis/analysis.md],
+             prompt: "按 plan/experiment_plan.md 执行分析；统计结果写入 results/main.json，解读写入 analysis/analysis.md。"}
+  - id: gate
+    type: checks
+    label: 验证门
+    parent: analyze
+    position: {x: 60, y: 180}
+    config: {artifacts: [results/main.json, analysis/analysis.md], json_valid: [results/main.json], verify_protected: true}
+  - id: report
+    type: loop
+    label: 报告 ⟲ 评审
+    position: {x: -60, y: 670}
+    width: 420
+    height: 320
+    config: {max_iterations: 3, until: "nodes.review.output.result.decision == 'accept'"}
+  - id: write
+    type: agent
+    label: 撰写报告
+    parent: report
+    position: {x: 60, y: 50}
+    config: {harness: writer, role: writer, outputs: [paper/paper.src.md, paper/paper.md],
+             prompt: "{{'根据评审意见修改：' + nodes.review.output.summary if loop.iteration > 1 else '撰写分析报告。'}}"}
+  - id: review
+    type: agent
+    label: 评审
+    parent: report
+    position: {x: 60, y: 180}
+    config:
+      harness: reviewer
+      role: reviewer
+      prompt: 评审 paper/paper.md 与 results/、analysis/ 的一致性和统计是否恰当。
+      output_schema: {type: object, properties: {decision: {enum: [accept, minor, major]}}, required: [decision]}
+  - id: final
+    type: human
+    label: 终审
+    position: {x: 0, y: 1030}
+    config: {kind: approve, title: 终审报告, show_files: [paper/paper.md]}
+  - {id: end, type: end, label: 结束, position: {x: 0, y: 1140}}
+edges:
+  - {source: start, target: plan}
+  - {source: plan, target: freeze}
+  - {source: freeze, target: analyze}
+  - {source: run, target: gate}
+  - {source: analyze, target: report}
+  - {source: write, target: review}
+  - {source: report, target: final}
+  - {source: final, target: end}

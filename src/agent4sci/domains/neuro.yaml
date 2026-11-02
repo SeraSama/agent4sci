@@ -1,0 +1,12 @@
+id: neuro
+label: 神经科学 / 脑科学
+description: EEG/MEG、fMRI、电生理、钙成像、计算神经科学；DANDI / OpenNeuro / Allen 数据
+tools: [literature, research, python, neuro]
+skill_tags: [neuro, data, imaging]
+mcp: [mne]
+prompt: |
+  Domain notes (neuroscience): search public data with search_neuro_datasets (DANDI, OpenNeuro, NeuroStore) and
+  follow the neuro-data-discovery skill. After loading any dataset, verify shapes, sampling rates, units and
+  event alignment before analysis, and write the checks to notes/data-checks.md. Use MNE-Python (EEG/MEG),
+  Nilearn (fMRI), SpikeInterface/pynwb (electrophysiology). Correct for multiple comparisons in mass-univariate
+  analyses (cluster-based permutation, FDR) and report effect sizes.

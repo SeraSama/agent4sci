@@ -1,0 +1,10 @@
+id: bio-chem-materials
+label: 生命科学 / 化学 / 材料
+description: 生物医学数据库、单细胞、化学信息学、材料计算
+tools: [literature, research, python]
+skill_tags: [bio-chem-materials]
+mcp: [biomcp]
+prompt: |
+  Domain notes (life sciences, chemistry, materials): prefer PubMed for biomedical literature; record database
+  versions/accessions for every dataset (UniProt, PDB, ChEMBL…); check units and identifiers (gene symbols vs
+  Ensembl IDs, SMILES canonicalisation). Computational predictions are hypotheses, not validated results — say so.

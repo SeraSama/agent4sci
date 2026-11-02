@@ -1,0 +1,41 @@
+id: autoresearch
+name: Autoresearch（指标改进才保留）
+category: pattern
+description: 每轮做一处改动并运行评测；主指标提升则 git 提交保留，否则回滚；连续无改进则停止
+inputs:
+  goal: {label: 目标（例如：提高 results/main.json 中的 score）, type: text, required: true}
+settings: {max_cost_usd: 15, auto_commit: true}
+nodes:
+  - {id: start, type: start, label: 开始, position: {x: 0, y: 0}}
+  - id: loop
+    type: loop
+    label: 迭代（保留/丢弃）
+    position: {x: -60, y: 110}
+    width: 420
+    height: 300
+    config:
+      max_iterations: 8
+      stall_patience: 3
+      keep_discard: true
+      metric: {name: score, file: results/main.json, pointer: /score, goal: max}
+  - id: change
+    type: agent
+    label: 改动并评测
+    parent: loop
+    position: {x: 60, y: 50}
+    config:
+      harness: experimenter
+      outputs: [results/main.json]
+      max_turns: 30
+      prompt: "{{inputs.goal}}\n第 {{loop.iteration}} 轮；当前最佳：{{loop.best}}。只做一处有针对性的改动，重新运行评测并更新 results/main.json（字段 score）。不要修改评测代码。"
+  - id: gate
+    type: checks
+    label: 验证门
+    parent: loop
+    position: {x: 60, y: 180}
+    config: {json_valid: [results/main.json]}
+  - {id: end, type: end, label: 结束, position: {x: 0, y: 450}}
+edges:
+  - {source: start, target: loop}
+  - {source: change, target: gate}
+  - {source: loop, target: end}

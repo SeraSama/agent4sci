@@ -1,0 +1,153 @@
+# Curated external sources of Agent Skills and MCP servers.
+# Sources, repository licenses and every pack skill name were verified against GitHub on 2026-09-19.
+# The installer re-checks each skill's own license at install time.
+
+sources:
+  - id: k-dense
+    repo: K-Dense-AI/scientific-agent-skills
+    path: skills
+    license: MIT（逐技能标注；其中 docx/pdf/pptx 为专有许可，安装器会自动拒绝）
+    trust: community
+    domains: [general, bio-chem-materials, neuro, ai-ml]
+    description: 160+ 个科研技能：科学数据库查询、文献检索与综述、同行评审、假设生成、scanpy/rdkit/pymatgen 等科学计算库
+  - id: orchestra
+    repo: Orchestra-Research/AI-Research-SKILLs
+    license: MIT
+    trust: community
+    domains: [ai-ml]
+    description: AI 研究工程技能（~98 个）：模型训练与评测、分布式、ML 论文写作、研究构思
+  - id: bioskills
+    repo: GPTomics/bioSkills
+    license: MIT
+    trust: community
+    domains: [bio-chem-materials]
+    description: 生物信息学分析技能合集
+    note: 仓库已归档（只读），内容不再更新
+  - id: huggingface
+    repo: huggingface/skills
+    license: Apache-2.0
+    trust: official
+    domains: [ai-ml]
+    description: Hugging Face 官方技能：模型训练、数据集、推理
+  - id: anthropic
+    repo: anthropics/skills
+    license: 逐技能：大部分 Apache-2.0；docx/pdf/pptx/xlsx 为专有许可（会被拒绝）
+    trust: official
+    domains: [general]
+    description: Anthropic 官方示例技能：skill-creator（技能创作）、mcp-builder 等
+  - id: catalystneuro
+    repo: catalystneuro/claude-skills
+    license: MIT
+    trust: community
+    domains: [neuro]
+    description: CatalystNeuro：DANDI 数据检索与 NWB 流式读取、NWB 转换、NWB 扩展、NeMoS GLM
+  - id: neurodiscovery
+    repo: CUHK-AIM-Group/NeuroDiscovery
+    path: skills
+    license: MIT
+    trust: community
+    domains: [neuro]
+    description: 神经影像/脑科学技能 70+：nilearn、nibabel、mne-eeg、dipy、fMRIPrep、FSL、FreeSurfer、公开数据集
+  - id: claude-eeg
+    repo: Krish-mal15/ClaudeEEG
+    license: Apache-2.0
+    trust: community
+    domains: [neuro]
+    description: EEG/MEG/BCI 知识技能（MNE、braindecode、pyRiemann）
+  - id: neuroaihub
+    repo: NeuroAIHub/awesome_cognitive_and_neuroscience_skills
+    path: skills
+    license: MIT
+    trust: low
+    domains: [neuro]
+    description: 认知与神经科学技能 50 个（ERP、fMRI GLM、钙成像、SpikeInterface 等）
+    note: 作者声明全部内容由 AI 生成、未经专家审核，使用前请自行核对
+  - id: neurosift
+    repo: magland/neurosift-datasets-skill
+    license: 无许可证
+    trust: low
+    domains: [neuro]
+    description: 通过 Neurosift 检索 DANDI/OpenNeuro/EBRAINS 数据集
+    note: 仓库没有许可证文件，需要显式允许（--allow-license）才能安装
+
+packs:
+  general:
+    - source: k-dense
+      skills: [literature-review, paper-lookup, peer-review, hypothesis-generation, scientific-writing,
+               statistical-analysis, exploratory-data-analysis, scientific-visualization]
+      tags: [general, literature, writing, analysis]
+    - source: anthropic
+      skills: [skill-creator]
+      tags: [general, meta]
+  ai-ml:
+    - source: orchestra
+      skills: [ml-paper-writing, brainstorming-research-ideas]
+      tags: [ai-ml, writing, ideation]
+    - source: k-dense
+      skills: [scikit-learn, pytorch-lightning, transformers, shap]
+      tags: [ai-ml]
+  bio-chem-materials:
+    - source: k-dense
+      skills: [database-lookup, scanpy, rdkit, pymatgen, pysam, biopython]
+      tags: [bio-chem-materials]
+  neuro:
+    - source: k-dense
+      skills: [neuropixels-analysis, neurokit2, bids, datalad]
+      tags: [neuro]
+    - source: catalystneuro
+      skills: [analyzing-dandi-datasets, nwb-convert, using-nemos]
+      tags: [neuro, data]
+    - source: neurodiscovery
+      skills: [nilearn-tool, nibabel-skill, mne-eeg-tool, dipy-tool]
+      tags: [neuro, imaging]
+
+mcp_servers:
+  - name: arxiv
+    label: arXiv 检索与下载
+    repo: blazickjp/arxiv-mcp-server
+    license: Apache-2.0
+    domains: [general, ai-ml]
+    command: uvx
+    args: [arxiv-mcp-server]
+  - name: paper-search
+    label: 多源论文检索（arXiv / PubMed / bioRxiv 等）
+    repo: openags/paper-search-mcp
+    license: MIT
+    domains: [general]
+    command: uvx
+    # The package still imports mcp.server.fastmcp (SDK v1), so pin the SDK it was written against.
+    args: [--with, "mcp<2", paper-search-mcp]
+  - name: pubmed
+    label: PubMed
+    repo: cyanheads/pubmed-mcp-server
+    license: 未核实
+    domains: [bio-chem-materials, neuro]
+    command: npx
+    # Needs Node 24+ (package.json engines); older Node starts it but can fail at runtime.
+    args: [-y, "@cyanheads/pubmed-mcp-server"]
+    note: 需要 Node.js 24 或更新版本。
+  - name: biomcp
+    label: BioMCP（生物医学数据库）
+    repo: genomoncology/biomcp
+    license: MIT
+    domains: [bio-chem-materials]
+    command: uvx
+    # biomcp-cli ships a prebuilt binary with no Python dependencies. The retired biomcp-python pulled in
+    # alphagenome → pandas/pyarrow (~150 MB), which made the first start take many minutes on a slow link.
+    # Either way the executable is called `biomcp`, not the package name, so uvx needs --from.
+    args: [--from, biomcp-cli, biomcp, serve]
+  - name: mne
+    label: MNE-MCP（EEG/MEG 分析，38 个工具）
+    repo: Exekiel179/MNE-MCP
+    license: MIT
+    domains: [neuro]
+    command: uvx
+    # mne-mcp declares no `ica` extra (only `dev`); asking for one just prints a resolver warning.
+    args: [--from, mne-mcp, mne-mcp, serve, --transport, stdio]
+    note: 首次启动会装 MNE 及其科学计算依赖，比较慢。
+  - name: virtual-fly-brain
+    label: Virtual Fly Brain（果蝇脑解剖与连接组）
+    repo: VirtualFlyBrain/VFB3-MCP
+    license: MIT
+    domains: [neuro]
+    url: https://vfb3-mcp.virtualflybrain.org
