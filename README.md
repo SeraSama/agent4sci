@@ -6,26 +6,19 @@
 
 ---
 
-## 下载安装
+## 安装
 
-到 [Releases](../../releases) 下载对应系统的安装包。没有现成安装包，或者你的系统不在下面的范围里，可以[自己构建](#安装与构建)——自己构建出来的应用不会被 Gatekeeper 拦。
+**本项目只发布源代码，没有预编译的安装包。** 自己构建一次，步骤见下面的[安装与构建](#安装与构建)——好处是本机构建出来的应用不带 quarantine 标记，双击就能打开，不会遇到 Gatekeeper 的拦截。
 
-### macOS（仅 Apple Silicon：M 系列芯片）
+支持的系统：
 
-下载 `.dmg`，拖进「应用程序」。安装包**没有经过 Apple 公证**，所以第一次打开会被系统拦下，提示大意是「Apple 无法验证此 App 是否包含恶意软件」。放行一次就好，之后再也不会出现：
+| 系统 | 状态 |
+|---|---|
+| macOS，Apple Silicon（M 系列） | 支持 |
+| macOS，Intel | **不支持**。构建脚本会直接报错退出，不会给你一个装不上的包 |
+| Windows x64 | 支持 |
 
-1. 先双击打开一次（会被拒绝 —— 这一步不能跳过，否则下一步看不到入口）
-2. 打开**系统设置 → 隐私与安全性**，滚到下方会出现一行关于 Agent4Sci 被阻止的提示，点**「仍要打开」**
-3. 再确认一次
-
-> macOS 15 之前可以直接右键点应用 →「打开」绕过；macOS 15 起 Apple 取消了这条捷径，要走上面的系统设置。
-> 熟悉终端的话，一条命令等效：`xattr -dr com.apple.quarantine /Applications/Agent4Sci.app`
-
-Intel Mac 用不了预编译包（里面的后端是 arm64 的），只能自己构建。
-
-### Windows（x64）
-
-下载 `.exe` 安装。安装包未签名，SmartScreen 会拦：点「更多信息」→「仍要运行」。
+构建大约需要：uv 与 Node.js 20+、约 1.4 GB 磁盘、首次十几分钟（要联网下载依赖和 Electron 运行时）。**不能交叉编译**——Windows 的安装包必须在 Windows 上构建，macOS 的同理。
 
 ### 装完还要做一步
 
@@ -68,7 +61,7 @@ packaging/build-mac.sh
 
 产物：`desktop/release/Agent4Sci-1.0.0-mac-arm64.dmg`（以及 `.zip`）。脚本会依次：安装依赖 → 运行测试 → 用 PyInstaller 打包 Python 后端 → 下载并校验 uv 二进制 → 冒烟测试后端 → 构建 Electron 应用 → ad-hoc 签名 → 生成 dmg/zip。加 `--skip-tests` 可跳过测试。
 
-你在本机构建出来的应用**不会**被 Gatekeeper 拦（quarantine 标记是下载时才加的）。把 dmg 发给别人时才需要放行，步骤见上面的[下载安装](#下载安装)。
+你在本机构建出来的应用**不会**被 Gatekeeper 拦 —— quarantine 标记是下载动作加的，本地编译的产物没有这个标记，双击就开。只有把 dmg 发给别人时才需要放行，见下面的「要把安装包发给别人」。
 
 ### Windows（x64）
 
@@ -99,7 +92,12 @@ $env:CSC_LINK = "C:\path\to\cert.pfx"; $env:CSC_KEY_PASSWORD = "..."
 powershell -ExecutionPolicy Bypass -File packaging\build-win.ps1
 ```
 
-证书需要自己申请：Apple Developer Program（99 美元/年）、Windows 代码签名证书（各 CA 价格不同）。没有证书时，让对方按[下载安装](#下载安装)里的步骤放行一次即可（macOS 走系统设置，Windows 点“更多信息 → 仍要运行”）。
+证书需要自己申请：Apple Developer Program（99 美元/年）、Windows 代码签名证书（各 CA 价格不同）。
+
+没有证书时，让对方手动放行一次，之后不再提示：
+
+- **macOS**：先双击打开一次（会被拒绝，这步不能跳过，否则下一步看不到入口），再打开**系统设置 → 隐私与安全性**，滚到下方会出现一行关于 Agent4Sci 被阻止的提示，点**“仍要打开”**。macOS 15 之前也可以直接右键点应用 →“打开”，macOS 15 起 Apple 取消了这条捷径。等效的命令是 `xattr -dr com.apple.quarantine /Applications/Agent4Sci.app`。
+- **Windows**：SmartScreen 弹窗里点“更多信息”→“仍要运行”。
 
 ---
 

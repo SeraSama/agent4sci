@@ -23,7 +23,14 @@ need() { command -v "$1" >/dev/null 2>&1 || { echo "缺少 $1：$2" >&2; exit 1;
 need uv "安装方法见 https://docs.astral.sh/uv/getting-started/installation/"
 need node "请安装 Node.js 20 或更新版本（https://nodejs.org/）"
 need npm "请安装 Node.js 20 或更新版本（https://nodejs.org/）"
-[ "$(uname -m)" = "arm64" ] || echo "提示：当前不是 Apple Silicon，产物仍按 arm64 构建（electron-builder --arm64）"
+# Only Apple Silicon is supported.  Everything below is pinned to arm64 (fetch_uv --target mac-arm64,
+# electron-builder --arm64) while PyInstaller always builds for the host, so on an Intel Mac the three
+# halves of the bundle would disagree and the app would fail at launch with nothing in the build log.
+if [ "$(uname -m)" != "arm64" ]; then
+  echo "只支持 Apple Silicon（M 系列芯片）。当前是 $(uname -m)。" >&2
+  echo "在 Intel Mac 上构建会得到一个架构不匹配、无法启动的包，所以这里直接停下。" >&2
+  exit 1
+fi
 
 step "Python 依赖（uv sync）"
 uv sync --group build
