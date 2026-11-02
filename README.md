@@ -6,6 +6,35 @@
 
 ---
 
+## 下载安装
+
+到 [Releases](../../releases) 下载对应系统的安装包。没有现成安装包，或者你的系统不在下面的范围里，可以[自己构建](#安装与构建)——自己构建出来的应用不会被 Gatekeeper 拦。
+
+### macOS（仅 Apple Silicon：M 系列芯片）
+
+下载 `.dmg`，拖进「应用程序」。安装包**没有经过 Apple 公证**，所以第一次打开会被系统拦下，提示大意是「Apple 无法验证此 App 是否包含恶意软件」。放行一次就好，之后再也不会出现：
+
+1. 先双击打开一次（会被拒绝 —— 这一步不能跳过，否则下一步看不到入口）
+2. 打开**系统设置 → 隐私与安全性**，滚到下方会出现一行关于 Agent4Sci 被阻止的提示，点**「仍要打开」**
+3. 再确认一次
+
+> macOS 15 之前可以直接右键点应用 →「打开」绕过；macOS 15 起 Apple 取消了这条捷径，要走上面的系统设置。
+> 熟悉终端的话，一条命令等效：`xattr -dr com.apple.quarantine /Applications/Agent4Sci.app`
+
+Intel Mac 用不了预编译包（里面的后端是 arm64 的），只能自己构建。
+
+### Windows（x64）
+
+下载 `.exe` 安装。安装包未签名，SmartScreen 会拦：点「更多信息」→「仍要运行」。
+
+### 装完还要做一步
+
+应用本身**不含任何模型**。首次启动会先让你读一遍使用协议，然后需要到**模型**页填一个 API Key（DeepSeek、Anthropic、OpenAI，或任意 OpenAI 兼容端点），或者在本机装 [Ollama](https://ollama.com) 用本地模型。调用模型的费用由你自己承担。
+
+只想先看看界面的话，到**设置 → 通用**里打开「启用演示模型」，不需要任何 Key 就能走完整个流程。
+
+---
+
 ## 功能概览
 
 | 模块 | 说明 |
@@ -39,11 +68,7 @@ packaging/build-mac.sh
 
 产物：`desktop/release/Agent4Sci-1.0.0-mac-arm64.dmg`（以及 `.zip`）。脚本会依次：安装依赖 → 运行测试 → 用 PyInstaller 打包 Python 后端 → 下载并校验 uv 二进制 → 冒烟测试后端 → 构建 Electron 应用 → ad-hoc 签名 → 生成 dmg/zip。加 `--skip-tests` 可跳过测试。
 
-安装包未经 Apple 公证。第一次打开时在“应用程序”里右键 Agent4Sci →“打开”，或者：
-
-```bash
-xattr -dr com.apple.quarantine /Applications/Agent4Sci.app
-```
+你在本机构建出来的应用**不会**被 Gatekeeper 拦（quarantine 标记是下载时才加的）。把 dmg 发给别人时才需要放行，步骤见上面的[下载安装](#下载安装)。
 
 ### Windows（x64）
 
@@ -74,7 +99,7 @@ $env:CSC_LINK = "C:\path\to\cert.pfx"; $env:CSC_KEY_PASSWORD = "..."
 powershell -ExecutionPolicy Bypass -File packaging\build-win.ps1
 ```
 
-证书需要自己申请：Apple Developer Program（99 美元/年）、Windows 代码签名证书（各 CA 价格不同）。没有证书时，告诉对方 macOS 右键“打开”、Windows 点“更多信息 → 仍要运行”即可。
+证书需要自己申请：Apple Developer Program（99 美元/年）、Windows 代码签名证书（各 CA 价格不同）。没有证书时，让对方按[下载安装](#下载安装)里的步骤放行一次即可（macOS 走系统设置，Windows 点“更多信息 → 仍要运行”）。
 
 ---
 
@@ -196,7 +221,7 @@ tests/       pytest
 
 ## 常见问题
 
-- **macOS 提示“无法验证开发者”或“已损坏”**：未公证的应用会被 Gatekeeper 拦截。在“应用程序”里右键 Agent4Sci →“打开”，或运行 `xattr -dr com.apple.quarantine /Applications/Agent4Sci.app`。
+- **macOS 提示“Apple 无法验证此 App 是否包含恶意软件”**：未公证的应用会被 Gatekeeper 拦截。先双击一次，再到**系统设置 → 隐私与安全性**点“仍要打开”；macOS 15 之前也可以右键 →“打开”。等效的命令是 `xattr -dr com.apple.quarantine /Applications/Agent4Sci.app`。如果提示的是“已损坏”，那通常是下载不完整或解压时丢了扩展属性，重新下载即可。
 - **Windows SmartScreen / Defender 拦截**：未签名的安装包首次运行会被 SmartScreen 提示（“更多信息”→“仍要运行”）。PyInstaller 打包的 `agent4sci-server.exe` 偶尔会被 Defender 误报；可在“Windows 安全中心 → 病毒和威胁防护 → 保护历史记录”中还原，并把安装目录加入排除项。
 - **后端启动失败**：窗口会显示错误和日志路径。启动日志在“桌面端界面数据”目录的 `logs/backend.log`（菜单里也有“打开后端日志”）；MCP 服务器各自的输出在数据目录的 `logs/mcp/<名称>.log`。
 - **Windows 上命令输出或文件乱码**：命令行工具会让 PowerShell 以 UTF-8 输出和写文件（包括 `>` 重定向），Python 子进程也以 UTF-8 运行；读取结果文件时能识别 UTF-8 BOM 与 UTF-16。如果自己的脚本仍然乱码，请确认文件以 UTF-8 保存。
