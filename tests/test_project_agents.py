@@ -107,3 +107,19 @@ async def test_the_desk_refuses_conversations_outside_its_project(tmp_path, monk
     with pytest.raises(ToolError, match="找不到对话"):
         desk.read("c_nope", 5)
     assert "还没有别的对话" in desk.listing()
+
+@pytest.mark.asyncio
+async def test_it_refuses_to_dispatch_without_limit(tmp_path, monkeypatch):
+    """A runaway loop must hit a wall instead of opening conversations until the API bill does."""
+    from agent4sci.server.conversations import ProjectDesk
+    from agent4sci.tools.base import ToolError
+
+    _, manager, project = _env(tmp_path, monkeypatch, lambda *a: FakeTurn(text="hi"))
+    main = manager.main_conversation(project.id)
+    desk = ProjectDesk(manager, main.id)
+    for i in range(ProjectDesk.MAX_LIVE):
+        conv = manager.create(project_id=project.id, title=f"派生 {i}")
+        conv.spawned_by = main.id
+        manager.save(conv)
+    with pytest.raises(ToolError, match="已经有 24 个"):
+        await desk.start("再来一个", "做点什么", None, False, 60)

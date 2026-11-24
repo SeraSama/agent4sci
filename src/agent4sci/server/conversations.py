@@ -541,6 +541,7 @@ class ProjectDesk:
             "或者要用到你这边已有的上下文。\n"
             "和 `delegate` 的区别：`delegate` 是一次性子代理，研究者看不到、也没法接手；派生对话会留下来。\n"
             f"派生对话默认沿用本对话的 Harness、模型和安全级别（现在是：{labels.get(mode, mode)}）。"
+            f"每个派生对话都要花钱，所以同时最多 {self.MAX_RUNNING} 个在跑、未归档的最多 {self.MAX_LIVE} 个。"
         )
 
     # ---- helpers ---------------------------------------------------------------------
@@ -570,10 +571,19 @@ class ProjectDesk:
         return out
 
     # ---- the tools' actual work -------------------------------------------------------
+    MAX_RUNNING = 6   # dispatched at once: beyond this it is a runaway loop, not parallelism
+    MAX_LIVE = 24     # dispatched and not archived: a cap the researcher can lift by archiving
+
     async def start(self, title: str, task: str, harness: str | None, wait: bool, timeout: float) -> str:
         main = self._main()
         if main.project_id is None:
             raise ToolError("本对话不属于任何项目。")
+        mine = [c for c in self.manager.list(main.project_id) if c.spawned_by == main.id]
+        running = [c for c in mine if c.status == "running"]
+        if len(running) >= self.MAX_RUNNING:
+            raise ToolError(f"已经有 {len(running)} 个派生对话在跑了，先用 read_conversation 收掉几个再派。")
+        if len(mine) >= self.MAX_LIVE:
+            raise ToolError(f"这个项目里你派生的对话已经有 {len(mine)} 个。先归档用不上的，或者自己做。")
         if harness:
             known = {h.id for h in self.manager.builder.harnesses.list()}
             if harness not in known:
