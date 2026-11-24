@@ -1285,6 +1285,16 @@ const en: Record<string, string> = {
   "音频": "Audio",
   "数据": "Data",
   "压缩包": "Archive",
+  "本轮用时 {{d}}，{{at}} 结束": "Took {{d}}, finished at {{at}}",
+  "这个对话里 Agent 实际工作的总时长（不含你思考和打字的时间）": "How long the agent has actually worked in this chat (not counting your thinking and typing)",
+  "已排队（第 {{n}} 条），这一轮跑完后自动发出": "Queued ({{n}} waiting); it will be sent when this turn finishes",
+  "排队": "Queue",
+  "运行中再发消息时：插话会立刻打断当前这一步，排队会等这一轮跑完再发": "What a message sent mid-run does: interrupt cuts into the current step, queue waits for the turn to finish",
+  "运行中：插话": "Mid-run: interrupt",
+  "运行中：排队": "Mid-run: queue",
+  "下拉是常见取值，也可以直接输入你的厂商支持的值。": "The list holds the usual values; you can also type whatever your provider supports.",
+  "Anthropic 目前接受 low / medium / high / xhigh / max；别的值会被接口拒绝。可以直接输入。": "Anthropic currently accepts low / medium / high / xhigh / max; anything else is rejected by the API. You can type a value.",
+  "各家取值不一样，下拉里是常见的几个，你的端点支持什么就直接填什么。": "Providers differ here. The list holds the common ones — type whatever your endpoint supports.",
 }
 
 export default en

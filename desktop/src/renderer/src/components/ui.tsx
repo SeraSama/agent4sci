@@ -80,6 +80,23 @@ export const Select = forwardRef<HTMLSelectElement, SelectHTMLAttributes<HTMLSel
 )
 Select.displayName = 'Select'
 
+export function ComboInput({ value, onChange, options, placeholder, className }: {
+  value: string
+  onChange: (v: string) => void
+  options: string[]
+  placeholder?: string
+  className?: string
+}) {
+  const id = `combo-${options.join('-')}`
+  return (
+    <>
+      <input list={id} value={value} placeholder={placeholder} spellCheck={false}
+        onChange={(e) => onChange(e.target.value)} className={cn(field, 'h-8.5', className)} />
+      <datalist id={id}>{options.map((o) => <option key={o} value={o} />)}</datalist>
+    </>
+  )
+}
+
 export function Field({ label, hint, children, className }: { label: ReactNode; hint?: ReactNode; children: ReactNode; className?: string }) {
   return (
     <label className={cn('flex flex-col gap-1.5', className)}>

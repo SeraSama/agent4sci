@@ -39,7 +39,7 @@ from ..loops.schema import NODE_TYPE_INFO, LoopGraph, validate_graph
 from ..memory.store import MODE_SCOPES, SCOPE_LABELS, MemoryAccess
 from ..tools.bib import BIB_FILE, bib_keys
 from ..tools.findings import load_findings
-from .conversations import ConversationManager
+from .conversations import SHELL_GUARD_KEY, ConversationManager
 
 TEXT_SUFFIXES = {".md", ".txt", ".py", ".json", ".csv", ".tsv", ".yaml", ".yml", ".bib", ".tex", ".log", ".r", ".R",
                  ".m", ".jl", ".sh", ".toml", ".ini", ".cfg", ".html", ".css", ".js", ".ts", ".ipynb", ".jsonl", ""}
@@ -109,6 +109,7 @@ def create_app(state: ServerState) -> FastAPI:
         await state.shutdown()
 
     app = FastAPI(title="Agent4Sci", version=__version__, lifespan=lifespan)
+    app.state.a4s = state  # the usual FastAPI handle on server state; tests reach the managers through it
     app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
     def auth(request: Request) -> None:
@@ -522,7 +523,7 @@ def create_app(state: ServerState) -> FastAPI:
     @api.patch("/conversations/{conv_id}")
     async def patch_conversation(conv_id: str, body: dict[str, Any] = Body(...)) -> dict[str, Any]:
         allowed = {k: body[k] for k in ("title", "memory_mode", "harness_id", "model_id", "archived",
-                                        "permission_mode") if k in body}
+                                        "permission_mode", "steer_mode") if k in body}
         return convs.update(conv_id, **allowed).public()
 
     @api.delete("/conversations/{conv_id}")
@@ -604,9 +605,21 @@ def create_app(state: ServerState) -> FastAPI:
 
     @api.post("/interactions/{interaction_id}")
     async def resolve_interaction(interaction_id: str, body: dict[str, Any] = Body(...)) -> dict[str, Any]:
+        remembered = None
+        if body.get("always") and body.get("decision") == "allow":
+            # "allow, and stop asking" has to outlive this agent: settings changes now rebuild it.
+            pending = next((i for i in services.interactions.pending() if i.id == interaction_id), None)
+            conv_id = next((t.split(":", 1)[1] for t in (pending.topics if pending else []) if t.startswith("conv:")),
+                           None)
+            if pending is not None and conv_id:
+                key = (SHELL_GUARD_KEY if pending.payload.get("guard") == "shell"
+                       else str(pending.payload.get("category") or ""))
+                if key:
+                    state.conversations.remember_always_allow(conv_id, key)
+                    remembered = key
         if not services.interactions.resolve(interaction_id, body):
             raise KeyError(interaction_id)
-        return {"ok": True}
+        return {"ok": True, "remembered": remembered}
 
     @api.get("/events")
     async def events(topic: str, after: int = 0, limit: int = 5000) -> list[dict[str, Any]]:
@@ -634,12 +647,16 @@ def create_app(state: ServerState) -> FastAPI:
     async def update_harness(harness_id: str, body: dict[str, Any] = Body(...)) -> dict[str, Any]:
         current = state.builder.harnesses.get(harness_id)
         merged = {**current.model_dump(), **body, "id": harness_id}
-        return _dump(state.builder.harnesses.save(HarnessProfile(**merged)))
+        saved = state.builder.harnesses.save(HarnessProfile(**merged))
+        # Idle conversations hold an Agent built from the old profile; drop them so turn limits,
+        # budgets and permissions take effect on the next message instead of after a restart.
+        reloaded = state.conversations.drop_agents_using(harness_id)
+        return {**_dump(saved), "reloaded_conversations": reloaded}
 
     @api.delete("/harnesses/{harness_id}")
     async def delete_harness(harness_id: str) -> dict[str, Any]:
         state.builder.harnesses.reset(harness_id)
-        return {"ok": True}
+        return {"ok": True, "reloaded_conversations": state.conversations.drop_agents_using(harness_id)}
 
     @api.post("/harnesses/{harness_id}/preview")
     async def preview_harness(harness_id: str, body: dict[str, Any] = Body(default={})) -> dict[str, Any]:

@@ -37,13 +37,24 @@ class Conversation(BaseModel):
     updated: float = Field(default_factory=time.time)
     system_snapshot: str | None = None
     attachments: list[str] = Field(default_factory=list)  # files the user handed over: readable outside the workspace
+    # "allow, and stop asking" answers, kept here so they survive the agent being rebuilt.
+    # Keys are tool categories; SHELL_GUARD_KEY is the risky-command guard.
+    approval_overrides: dict[str, str] = Field(default_factory=dict)
     cost_usd: float = 0.0
+    # What to do with a message sent while the agent is still working: cut in immediately (steer),
+    # or hold it and send it as the next turn once this one finishes.
+    steer_mode: Literal["insert", "queue"] = "insert"
+    run_seconds: float = 0.0  # time the agent actually spent working, summed over every turn
+    last_turn_seconds: float = 0.0
     cost_unknown: bool = False  # some turns used a model without pricing, so cost_usd undercounts
     tokens: dict[str, int] = Field(default_factory=dict)
     status: Literal["idle", "running"] = "idle"
 
     def public(self) -> dict[str, Any]:
         return self.model_dump(exclude={"system_snapshot"})
+
+
+SHELL_GUARD_KEY = "exec.shell:guard"
 
 
 def message_view(data: dict[str, Any]) -> dict[str, Any]:
@@ -61,6 +72,7 @@ class ConversationManager:
         self._persisted: dict[str, tuple[float, int, int]] = {}  # conv id → (cost, input, output) already saved
         self.temp_messages: dict[str, list[dict[str, Any]]] = {}
         self.agents: dict[str, Agent] = {}
+        self.queued: dict[str, list[str]] = {}  # messages waiting for the current turn to finish
         self.tasks: dict[str, asyncio.Task] = {}
 
     # ---- CRUD ----------------------------------------------------------------------
@@ -120,9 +132,17 @@ class ConversationManager:
     def update(self, conv_id: str, **fields: Any) -> Conversation:
         conv = self.get(conv_id)
         prompt_affecting = {"memory_mode", "harness_id", "model_id"}
-        changed = {k for k, v in fields.items() if v is not None and getattr(conv, k) != v}
+        # Changing these does not alter the system prompt, but it is baked into the Agent at build time,
+        # so the cached agent has to go or the setting only takes effect after an app restart.
+        agent_affecting = {"permission_mode"}
+        # A caller that passes an explicit null means "clear it" — only refuse None on fields that
+        # cannot hold it, or "follow the harness" becomes a one-way door.
+        nullable = {name for name, f in Conversation.model_fields.items()
+                    if type(None) in getattr(f.annotation, "__args__", ())}
+        changed = {k for k, v in fields.items()
+                   if hasattr(conv, k) and (v is not None or k in nullable) and getattr(conv, k) != v}
         for key, value in fields.items():
-            if value is not None and hasattr(conv, key):
+            if hasattr(conv, key) and (value is not None or key in nullable):
                 setattr(conv, key, value)
         if conv.temporary:
             conv.memory_mode = "none"
@@ -130,8 +150,31 @@ class ConversationManager:
             conv.memory_mode = "conversation"
         if changed & prompt_affecting:
             conv.system_snapshot = None  # rebuilt on the next turn
+        if changed & (prompt_affecting | agent_affecting):
             self.agents.pop(conv_id, None)
         return self.save(conv)
+
+    def remember_always_allow(self, conv_id: str, key: str) -> None:
+        """Record an "allow, and stop asking" answer so a rebuilt agent honours it too."""
+        conv = self.get(conv_id)
+        if conv.approval_overrides.get(key) == "auto":
+            return
+        conv.approval_overrides = {**conv.approval_overrides, key: "auto"}
+        self.save(conv)
+        agent = self.agents.get(conv_id)
+        if agent is not None:  # the run is still going: apply it now, not just on the next rebuild
+            if key == SHELL_GUARD_KEY:
+                agent.ctx.shell_guard_allowed = True
+            else:
+                agent.config.approvals[key] = "auto"
+
+    def drop_agents_using(self, harness_id: str) -> int:
+        """Forget cached agents built from this harness, so an edit lands without restarting the app."""
+        stale = [c.id for c in self.list() if c.harness_id == harness_id and c.id in self.agents
+                 and not self._running(c.id)]
+        for conv_id in stale:
+            self.agents.pop(conv_id, None)
+        return len(stale)
 
     def delete(self, conv_id: str) -> None:
         self.stop(conv_id)
@@ -217,6 +260,10 @@ class ConversationManager:
         )
         agent = self.builder.build_agent(profile, ctx, history=history, system_override=conv.system_snapshot,
                                          on_message=on_message)
+        # Restore the "stop asking me this" answers from earlier turns.
+        overrides = dict(conv.approval_overrides)
+        agent.ctx.shell_guard_allowed = overrides.pop(SHELL_GUARD_KEY, None) == "auto"
+        agent.config.approvals.update(overrides)
         holder["agent"] = agent
         agent.ctx.readonly_roots.extend(p for p in map(Path, conv.attachments) if p.exists())
         if conv.system_snapshot is None:
@@ -230,6 +277,11 @@ class ConversationManager:
         if attached:
             text = text + "\n\n" + attached
         if self._running(conv_id):
+            if conv.steer_mode == "queue":
+                self.queued.setdefault(conv_id, []).append(text)
+                self.app.bus.publish(f"conv:{conv_id}", "message.queued",
+                                     {"pending": len(self.queued[conv_id])})
+                return {"status": "queued", "pending": len(self.queued[conv_id])}
             self.agents[conv_id].steer(text)
             return {"status": "steered"}
         agent = self.agents.get(conv_id)
@@ -298,18 +350,43 @@ class ConversationManager:
         return count
 
     async def _run(self, conv_id: str, agent: Agent, text: str) -> None:
+        started = time.monotonic()
         try:
             result = await agent.run(text)
             conv = self.get(conv_id)
+            self._record_duration(conv, time.monotonic() - started)
             self._persist_progress(conv, agent)
             self._explain_ending(conv, result)
         except asyncio.CancelledError:
+            self._record_duration(self.get(conv_id), time.monotonic() - started)
             self.app.bus.publish(f"conv:{conv_id}", "agent.done", {"status": "cancelled"})
         except Exception as exc:  # surface configuration errors (missing key etc.) to the UI
             self.agents.pop(conv_id, None)
+            self._record_duration(self.get(conv_id), time.monotonic() - started)
             self.app.bus.publish(f"conv:{conv_id}", "agent.error", {"error": str(exc)})
         finally:
             self.app.bus.publish(f"conv:{conv_id}", "conversation.status", {"status": "idle"})
+            if self.queued.get(conv_id):
+                asyncio.create_task(self._drain(conv_id), name=f"conv-queue:{conv_id}")
+
+    async def _drain(self, conv_id: str) -> None:
+        """Send whatever piled up while the agent was busy, once it really has stopped."""
+        for _ in range(100):
+            if not self._running(conv_id):
+                break
+            await asyncio.sleep(0.05)
+        pending = self.queued.pop(conv_id, [])
+        if pending:
+            await self.send(conv_id, "\n\n".join(pending))
+
+    def _record_duration(self, conv: Conversation, seconds: float) -> None:
+        """How long this turn took, and how long the conversation has cost in total."""
+        conv.last_turn_seconds = round(seconds, 1)
+        conv.run_seconds = round(conv.run_seconds + seconds, 1)
+        self.save(conv)
+        self.app.bus.publish(f"conv:{conv.id}", "turn.finished",
+                             {"seconds": conv.last_turn_seconds, "total_seconds": conv.run_seconds,
+                              "at": time.time()})
 
     def _explain_ending(self, conv: Conversation, result: AgentResult) -> None:
         """A run that stops without an answer must say so: silence looks like the app hanging."""

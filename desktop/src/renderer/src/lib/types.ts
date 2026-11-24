@@ -110,6 +110,9 @@ export interface Conversation {
   updated: number
   cost_usd: number
   cost_unknown?: boolean
+  steer_mode?: 'insert' | 'queue'
+  run_seconds?: number
+  last_turn_seconds?: number
   tokens: Record<string, number>
   status: 'idle' | 'running'
 }

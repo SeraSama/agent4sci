@@ -85,3 +85,34 @@ def test_the_harness_mode_can_be_overridden_per_conversation(tmp_path, monkeypat
     strict = builder.build_agent(profile, HarnessContext(workspace=tmp_path, memory_mode="none",
                                                          permission_mode="ask_all"))
     assert strict.ctx.permission_mode == "ask_all" and strict.config.approvals["exec"] == "ask"
+
+
+async def test_always_allow_stops_the_command_guard_asking_again(workspace):
+    """「本次对话都允许」 used to be ignored on command prompts: the guard only read `decision`."""
+    asked: list[str] = []
+
+    def handler(interaction):
+        asked.append(interaction.title)
+        return {"decision": "allow", "always": True}
+
+    ctx = ToolContext(workspace=workspace, permission_mode="ask_risky",
+                      interactions=InteractionBroker(handler=handler))
+    await call(shell.shell, ctx, command="ls ~/Documents")
+    assert len(asked) == 1 and ctx.shell_guard_allowed
+
+    await call(shell.shell, ctx, command="ls ~/Downloads")
+    await call(shell.shell, ctx, command="ls /etc")
+    assert len(asked) == 1, "after 'always' the guard must stop asking"
+
+
+async def test_the_guard_marks_itself_so_the_server_can_tell_it_from_a_tool_approval(workspace):
+    seen: list[dict] = []
+
+    def handler(interaction):
+        seen.append(interaction.payload)
+        return {"decision": "allow"}
+
+    ctx = ToolContext(workspace=workspace, permission_mode="ask_risky",
+                      interactions=InteractionBroker(handler=handler))
+    await call(shell.shell, ctx, command="ls ~/Documents")
+    assert seen[0]["guard"] == "shell" and seen[0]["category"] == "exec.shell"

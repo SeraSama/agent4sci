@@ -1,7 +1,7 @@
 {
   "name": "agent4sci-desktop",
   "productName": "Agent4Sci",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Agent4Sci — 自动化科研 Agent 桌面应用",
   "main": "./out/main/index.js",
   "author": "Agent4Sci",

@@ -1,7 +1,7 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Brain, BrainCircuit, ChevronDown, ChevronRight, Ghost, Globe, Layers, MessageSquare, MessagesSquare, Plus,
   Pencil, Save, Search, Send, ShieldCheck, Sparkles, Square, Trash2, UserRound, FolderKanban, BookmarkPlus,
-  Archive, BookMarked, FlaskConical, Puzzle, TriangleAlert } from 'lucide-react'
+  Archive, BookMarked, Clock, CornerDownRight, FlaskConical, ListOrdered, Puzzle, TriangleAlert } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { navigate, useRoute } from '@/app/router'
@@ -16,7 +16,7 @@ import { del, errorMessage, get, patch, post, put } from '@/lib/api'
 import { useEvents } from '@/lib/events'
 import { useApp, useCurrentProject, useModels, useProjects } from '@/lib/store'
 import type { Block, ChatMessage, Conversation, HarnessProfile, Interaction, MemoryMode } from '@/lib/types'
-import { cn, costLabel, formatCost, formatTime, formatTokens, toast } from '@/lib/utils'
+import { cn, costLabel, formatCost, formatDuration, formatTime, formatTokens, toast } from '@/lib/utils'
 
 export const MEMORY_MODES: { value: MemoryMode; label: string; icon: typeof Globe; hint: string }[] = [
   { value: 'global', label: '全局记忆', icon: Globe, hint: '读写全局、项目和本对话的记忆' },
@@ -345,6 +345,11 @@ function ChatView({ id }: { id: string }) {
             </div>
           )}
           <MessageList messages={messages} running={running} results={results} convId={id} memoryMode={data.memory_mode} />
+          {status === 'idle' && !!data.last_turn_seconds && messages.length > 0 && (
+            <div className="pl-10 text-[11px] text-subtle">
+              {t('本轮用时 {{d}}，{{at}} 结束', { d: formatDuration(data.last_turn_seconds), at: formatTime(data.updated) })}
+            </div>
+          )}
           {status === 'running' && (live.reasoning || live.text) && (
             <div className="flex gap-3">
               <Avatar role="assistant" />
@@ -578,6 +583,13 @@ function ChatHeader({ conv, usage }: { conv: Conversation; usage: { context: num
           </div>
         </Tip>
       )}
+      {!!conv.run_seconds && (
+        <Tip content={t('这个对话里 Agent 实际工作的总时长（不含你思考和打字的时间）')}>
+          <span className="flex items-center gap-1 text-xs text-muted tabular-nums">
+            <Clock className="h-3 w-3 text-subtle" />{formatDuration(conv.run_seconds)}
+          </span>
+        </Tip>
+      )}
       <Tip content={conv.cost_unknown ? t('所用模型没有设置价格，无法统计费用（在“模型”页填写单价）')
         : t('输入 {{i}} · 输出 {{o}} tokens', { i: formatTokens(conv.tokens?.input), o: formatTokens(conv.tokens?.output) })}>
         <span className="text-xs text-muted tabular-nums">{costLabel(conv.cost_usd, conv.cost_unknown)}</span>
@@ -660,11 +672,21 @@ interface Attachment {
   size?: number
 }
 
+function readDraft(key: string): string {
+  try {
+    return localStorage.getItem(key) ?? ''
+  } catch {
+    return ''
+  }
+}
+
 function Composer({ conv, running }: { conv: Conversation; running: boolean }) {
   const { t } = useTranslation()
   const qc = useQueryClient()
   const id = conv.id
-  const [text, setText] = useState('')
+  // Leaving a conversation used to throw away whatever you had typed. Keep it per conversation.
+  const draftKey = `a4s.draft.${id}`
+  const [text, setText] = useState(() => readDraft(draftKey))
   const [files, setFiles] = useState<Attachment[]>([])
   const [dragging, setDragging] = useState(false)
   const [sending, setSending] = useState(false)
@@ -674,10 +696,22 @@ function Composer({ conv, running }: { conv: Conversation; running: boolean }) {
     queryFn: () => get<{ id: string; label: string; hint: string }[]>('/permission-modes'),
   })
 
-  const setPermission = async (mode: string) => {
+  // Switching conversations does not always remount this component, so reload the draft by hand.
+  useEffect(() => setText(readDraft(`a4s.draft.${id}`)), [id])
+  useEffect(() => {
     try {
-      await patch(`/conversations/${id}`, { permission_mode: mode || null })
+      if (text) localStorage.setItem(draftKey, text)
+      else localStorage.removeItem(draftKey)
+    } catch {
+      // storage unavailable
+    }
+  }, [text, draftKey])
+
+  const setField = async (patchBody: Record<string, unknown>) => {
+    try {
+      await patch(`/conversations/${id}`, patchBody)
       await qc.invalidateQueries({ queryKey: ['conversation', id] })
+      await qc.invalidateQueries({ queryKey: ['conversations'] })
     } catch (err) {
       toast.error(errorMessage(err))
     }
@@ -705,10 +739,12 @@ function Composer({ conv, running }: { conv: Conversation; running: boolean }) {
     if (!value && !paths.length) return
     setSending(true)
     try {
-      const r = await post<{ status: string }>(`/conversations/${id}/messages`, { text: value, files: paths })
+      const r = await post<{ status: string; pending?: number }>(`/conversations/${id}/messages`,
+        { text: value, files: paths })
       setText('')
       setFiles([])
       if (r.status === 'steered') toast.info(t('已作为插话发送，将在下一步生效'))
+      if (r.status === 'queued') toast.info(t('已排队（第 {{n}} 条），这一轮跑完后自动发出', { n: r.pending ?? 1 }))
     } catch (err) {
       toast.error(errorMessage(err))
     } finally {
@@ -774,17 +810,28 @@ function Composer({ conv, running }: { conv: Conversation; running: boolean }) {
               <Button size="sm" variant="outline" onClick={() => post(`/conversations/${id}/stop`)}><Square className="h-3.5 w-3.5" />{t('停止')}</Button>
             )}
             <Button variant="primary" onClick={send} loading={sending} disabled={!text.trim() && !files.length}>
-              <Send className="h-4 w-4" />{running ? t('插话') : t('发送')}
+              <Send className="h-4 w-4" />{running ? (conv.steer_mode === 'queue' ? t('排队') : t('插话')) : t('发送')}
             </Button>
           </div>
         </div>
-        {/* Permission sits here, next to the button that actually sets the agent going. */}
+        {/* Permission and interrupt behaviour sit next to the button that sets the agent going. */}
         <div className="flex items-center justify-end gap-1.5">
+          <Tip content={t('运行中再发消息时：插话会立刻打断当前这一步，排队会等这一轮跑完再发')}>
+            <span className="flex items-center gap-1 text-[11px] text-subtle">
+              {conv.steer_mode === 'queue' ? <ListOrdered className="h-3.5 w-3.5" /> : <CornerDownRight className="h-3.5 w-3.5" />}
+            </span>
+          </Tip>
+          <Select className="h-6.5 w-auto border-transparent bg-transparent px-1.5 text-[11px] text-muted hover:border-border"
+            value={conv.steer_mode ?? 'insert'} onChange={(e) => void setField({ steer_mode: e.target.value })}>
+            <option value="insert">{t('运行中：插话')}</option>
+            <option value="queue">{t('运行中：排队')}</option>
+          </Select>
+          <span className="text-subtle">·</span>
           <Tip content={t('权限：Agent 动手前要不要先问你')}>
             <ShieldCheck className="h-3.5 w-3.5 text-subtle" />
           </Tip>
           <Select className="h-6.5 w-auto border-transparent bg-transparent px-1.5 text-[11px] text-muted hover:border-border"
-            value={conv.permission_mode ?? ''} onChange={(e) => void setPermission(e.target.value)}>
+            value={conv.permission_mode ?? ''} onChange={(e) => void setField({ permission_mode: e.target.value || null })}>
             <option value="">{t('跟随 Harness')}</option>
             {permissionModes?.map((m) => <option key={m.id} value={m.id} title={m.hint}>{t(m.label)}</option>)}
           </Select>

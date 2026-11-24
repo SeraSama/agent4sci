@@ -3,7 +3,7 @@ import { Bot, Check, ChevronDown, ChevronRight, KeyRound, Pencil, Plus, Star, Tr
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { confirmAction } from '@/components/confirm'
-import { Badge, Button, Card, Dialog, Empty, Field, Input, PageHeader, SectionTitle, Select, Switch, Textarea, Tip } from '@/components/ui'
+import { Badge, Button, Card, ComboInput, Dialog, Empty, Field, Input, PageHeader, SectionTitle, Select, Switch, Textarea, Tip } from '@/components/ui'
 import { del, errorMessage, get, post, put } from '@/lib/api'
 import { useModels } from '@/lib/store'
 import type { Capabilities, ModelProfile, Preset } from '@/lib/types'
@@ -235,18 +235,16 @@ function ModelDialog({ model, onClose }: { model: ModelProfile | null; onClose: 
               <Input type="password" value={apiKey} onChange={(e) => setApiKey(e.target.value)} placeholder={preset?.api_key_env ? t('或设置环境变量 {{env}}', { env: preset.api_key_env }) : ''} />
             </Field>
             {form.provider === 'anthropic' ? (
-              <Field label={t('推理强度（effort）')}>
-                <Select value={form.effort ?? ''} onChange={(e) => set('effort', e.target.value || null)}>
-                  <option value="">{t('默认')}</option>
-                  {['low', 'medium', 'high', 'xhigh', 'max'].map((v) => <option key={v} value={v}>{v}</option>)}
-                </Select>
+              <Field label={t('推理强度（effort）')}
+                hint={t('Anthropic 目前接受 low / medium / high / xhigh / max；别的值会被接口拒绝。可以直接输入。')}>
+                <ComboInput value={form.effort ?? ''} onChange={(v) => set('effort', v || null)}
+                  options={['low', 'medium', 'high', 'xhigh', 'max']} placeholder={t('默认')} />
               </Field>
             ) : (
-              <Field label={t('推理强度（reasoning_effort，仅推理模型）')}>
-                <Select value={form.reasoning_effort ?? ''} onChange={(e) => set('reasoning_effort', e.target.value || null)}>
-                  <option value="">{t('不发送')}</option>
-                  {['minimal', 'low', 'medium', 'high'].map((v) => <option key={v} value={v}>{v}</option>)}
-                </Select>
+              <Field label={t('推理强度（reasoning_effort，仅推理模型）')}
+                hint={t('各家取值不一样，下拉里是常见的几个，你的端点支持什么就直接填什么。')}>
+                <ComboInput value={form.reasoning_effort ?? ''} onChange={(v) => set('reasoning_effort', v || null)}
+                  options={['minimal', 'low', 'medium', 'high', 'xhigh', 'max']} placeholder={t('不发送')} />
               </Field>
             )}
             <Field label={t('上下文长度（tokens）')}>

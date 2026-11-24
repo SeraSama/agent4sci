@@ -59,7 +59,7 @@
 packaging/build-mac.sh
 ```
 
-产物：`desktop/release/Agent4Sci-1.0.0-mac-arm64.dmg`（以及 `.zip`）。脚本会依次：安装依赖 → 运行测试 → 用 PyInstaller 打包 Python 后端 → 下载并校验 uv 二进制 → 冒烟测试后端 → 构建 Electron 应用 → ad-hoc 签名 → 生成 dmg/zip。加 `--skip-tests` 可跳过测试。
+产物：`desktop/release/Agent4Sci-1.0.1-mac-arm64.dmg`（以及 `.zip`）。脚本会依次：安装依赖 → 运行测试 → 用 PyInstaller 打包 Python 后端 → 下载并校验 uv 二进制 → 冒烟测试后端 → 构建 Electron 应用 → ad-hoc 签名 → 生成 dmg/zip。加 `--skip-tests` 可跳过测试。
 
 你在本机构建出来的应用**不会**被 Gatekeeper 拦 —— quarantine 标记是下载动作加的，本地编译的产物没有这个标记，双击就开。只有把 dmg 发给别人时才需要放行，见下面的「要把安装包发给别人」。
 
@@ -71,7 +71,7 @@ packaging/build-mac.sh
 powershell -ExecutionPolicy Bypass -File packaging\build-win.ps1
 ```
 
-缺少 uv 或 Node.js 时，脚本会询问是否自动安装（uv 用官方安装脚本，Node.js 用 winget）；加 `-Yes` 自动同意，加 `-SkipTests` 跳过测试。产物：`desktop\release\Agent4Sci-Setup-1.0.0.exe`。未签名的安装包首次运行时 SmartScreen 可能拦截：点“更多信息”→“仍要运行”。
+缺少 uv 或 Node.js 时，脚本会询问是否自动安装（uv 用官方安装脚本，Node.js 用 winget）；加 `-Yes` 自动同意，加 `-SkipTests` 跳过测试。产物：`desktop\release\Agent4Sci-Setup-1.0.1.exe`。未签名的安装包首次运行时 SmartScreen 可能拦截：点“更多信息”→“仍要运行”。
 
 git 不是构建必需，但应用里的工作区版本记录与回滚需要它（[git-scm.com](https://git-scm.com/)）。
 

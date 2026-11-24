@@ -10,7 +10,7 @@ import { CodeEditor } from '@/components/CodeEditor'
 import { askForText, confirmAction } from '@/components/confirm'
 import { useContextMenu } from '@/components/ContextMenu'
 import { Timeline } from '@/components/Timeline'
-import { Badge, Button, Card, Dialog, Empty, Field, Input, Select, SectionTitle, Spinner, Switch, TabPanel, Tabs, Tip } from '@/components/ui'
+import { Badge, Button, Card, ComboInput, Dialog, Empty, Field, Input, Select, SectionTitle, Spinner, Switch, TabPanel, Tabs, Tip } from '@/components/ui'
 import { del, errorMessage, get, post, put } from '@/lib/api'
 import { useEvents, type BackendEvent } from '@/lib/events'
 import { useCurrentProject, useModels } from '@/lib/store'
@@ -384,10 +384,9 @@ function ConfigForm({ profile }: { profile: HarnessProfile }) {
             <option value="">{t('（默认）')}</option>{models?.models.map((m) => <option key={m.id} value={m.id}>{t(m.name)}</option>)}
           </Select>
         </Field>
-        <Field label={t('推理强度')}>
-          <Select value={p.effort ?? ''} onChange={(e) => set({ effort: e.target.value || null })}>
-            <option value="">{t('（模型默认）')}</option>{['low', 'medium', 'high', 'xhigh', 'max'].map((v) => <option key={v}>{v}</option>)}
-          </Select>
+        <Field label={t('推理强度')} hint={t('下拉是常见取值，也可以直接输入你的厂商支持的值。')}>
+          <ComboInput value={p.effort ?? ''} onChange={(v) => set({ effort: v || null })}
+            options={['low', 'medium', 'high', 'xhigh', 'max']} placeholder={t('（模型默认）')} />
         </Field>
       </div>
       <Field label={t('角色提示（system prompt 的第一部分）')}>

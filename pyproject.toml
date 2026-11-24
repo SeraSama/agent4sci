@@ -1,6 +1,6 @@
 [project]
 name = "agent4sci"
-version = "1.0.0"
+version = "1.0.1"
 description = "Agent framework and desktop app for automated scientific research"
 readme = "README.md"
 license = "MIT"

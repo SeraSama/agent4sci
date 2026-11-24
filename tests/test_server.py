@@ -359,3 +359,83 @@ def test_diagnostics_reports_the_environment(client):
     assert names["Python"]["ok"] is True and names["数据目录"]["ok"] is True
     assert "uv" in names and "模型档案" in names
     assert all({"name", "ok", "detail", "hint"} <= set(c) for c in data["checks"])
+
+
+def test_permission_mode_can_be_set_and_cleared(client):
+    """Leaving "follow the harness" used to be a one-way door: update() skipped every None."""
+    conv = client.post("/api/conversations", headers=H, json={}).json()
+    assert conv["permission_mode"] is None
+
+    def patch(mode):
+        return client.patch(f"/api/conversations/{conv['id']}", headers=H,
+                            json={"permission_mode": mode}).json()["permission_mode"]
+
+    assert patch("ask_all") == "ask_all"
+    assert client.get(f"/api/conversations/{conv['id']}", headers=H).json()["permission_mode"] == "ask_all"
+    assert patch(None) is None  # back to following the harness
+    assert client.get(f"/api/conversations/{conv['id']}", headers=H).json()["permission_mode"] is None
+    assert patch("allow_all") == "allow_all"
+
+    # a field that cannot be null is still protected
+    assert client.patch(f"/api/conversations/{conv['id']}", headers=H,
+                        json={"harness_id": None}).json()["harness_id"] == "assistant"
+
+
+def test_settings_changes_land_without_restarting_the_app(client):
+    """The Agent is cached per conversation, so a setting that is baked in at build time has to drop
+    that cache — otherwise it only takes effect after the whole app is restarted."""
+    conv = client.post("/api/conversations", headers=H, json={}).json()
+    client.post(f"/api/conversations/{conv['id']}/messages", headers=H, json={"text": "你好"})
+    wait_for(lambda: client.get(f"/api/conversations/{conv['id']}", headers=H).json()["status"] == "idle")
+
+    manager = client.app.state.a4s.conversations
+    assert conv["id"] in manager.agents, "a finished turn should leave the agent cached"
+    assert manager.agents[conv["id"]].config.approvals.get("exec") != "ask"  # ask_risky by default
+
+    client.patch(f"/api/conversations/{conv['id']}", headers=H, json={"permission_mode": "ask_all"})
+    assert conv["id"] not in manager.agents, "changing the permission mode must drop the cached agent"
+    rebuilt = manager._build_agent(manager.get(conv["id"]))
+    assert rebuilt.config.approvals.get("exec") == "ask", "the rebuilt agent should be in ask_all"
+
+    # editing the harness itself (turn limits, budgets, permissions) has to do the same
+    manager.agents[conv["id"]] = rebuilt
+    profile = client.get("/api/harnesses", headers=H).json()[0]
+    body = client.put(f"/api/harnesses/{profile['id']}", headers=H, json={**profile, "max_turns": 7}).json()
+    assert body["max_turns"] == 7
+    assert body["reloaded_conversations"] >= 1
+    assert conv["id"] not in manager.agents
+
+
+def test_a_message_sent_mid_run_can_queue_instead_of_cutting_in(client):
+    conv = client.post("/api/conversations", headers=H, json={}).json()
+    assert client.patch(f"/api/conversations/{conv['id']}", headers=H,
+                        json={"steer_mode": "queue"}).json()["steer_mode"] == "queue"
+    manager = client.app.state.a4s.conversations
+
+    client.post(f"/api/conversations/{conv['id']}/messages", headers=H, json={"text": "第一条"})
+    # While that turn is in flight a second message is held, not injected.
+    queued = None
+    for _ in range(200):
+        r = client.post(f"/api/conversations/{conv['id']}/messages", headers=H, json={"text": "第二条"}).json()
+        if r["status"] == "queued":
+            queued = r
+            break
+        if r["status"] == "started":  # the first turn already finished; try again
+            continue
+        time.sleep(0.02)
+    assert queued is not None and queued["pending"] == 1
+
+    # and it runs on its own once the agent is free
+    wait_for(lambda: client.get(f"/api/conversations/{conv['id']}", headers=H).json()["status"] == "idle"
+             and not manager.queued.get(conv["id"]))
+    texts = " ".join(str(m) for m in client.get(f"/api/conversations/{conv['id']}", headers=H).json()["messages"])
+    assert "第二条" in texts
+
+
+def test_a_finished_turn_records_how_long_it_took(client):
+    conv = client.post("/api/conversations", headers=H, json={}).json()
+    assert conv["run_seconds"] == 0.0
+    client.post(f"/api/conversations/{conv['id']}/messages", headers=H, json={"text": "你好"})
+    done = wait_for(lambda: (lambda d: d if d["status"] == "idle" and d["run_seconds"] > 0 else None)(
+        client.get(f"/api/conversations/{conv['id']}", headers=H).json()))
+    assert done["last_turn_seconds"] > 0 and done["run_seconds"] >= done["last_turn_seconds"]

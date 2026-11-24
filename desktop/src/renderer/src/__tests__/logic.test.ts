@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { getPath, setPath, summarize } from '@/components/graph/meta'
 import en from '@/i18n/en'
 import { fileKind, KIND_COLOR } from '@/lib/filetypes'
+import { formatDuration } from '@/lib/utils'
 import { coversRegion, DEFAULT_UI, mergeUi } from '@/lib/uiprefs'
 import { BUILTIN_THEMES, contrastRatio, isValidTheme, runContrastChecks } from '@/theme/themes'
 
@@ -85,5 +86,17 @@ describe('file kinds', () => {
   it('is case-insensitive and keeps a colour for every kind', () => {
     expect(fileKind('REPORT.PDF')).toBe('pdf')
     for (const kind of new Set(Object.values(KIND_COLOR))) expect(kind).toBeTruthy()
+  })
+})
+
+describe('durations', () => {
+  it('reads as seconds, then minutes, then hours', () => {
+    expect(formatDuration(0)).toBe('0s')
+    expect(formatDuration(4.26)).toBe('4.3s')
+    expect(formatDuration(42.4)).toBe('42s')
+    expect(formatDuration(95)).toBe('1m 35s')
+    expect(formatDuration(3600)).toBe('1h 0m')
+    expect(formatDuration(7845)).toBe('2h 10m')
+    expect(formatDuration(undefined)).toBe('0s')
   })
 })

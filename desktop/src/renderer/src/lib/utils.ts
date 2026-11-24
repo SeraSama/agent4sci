@@ -43,6 +43,14 @@ export function formatBytes(n: number): string {
   return `${(n / 1024 ** 3).toFixed(2)} GB`
 }
 
+export function formatDuration(seconds: number | null | undefined): string {
+  if (!seconds || seconds < 0) return '0s'
+  if (seconds < 60) return `${seconds < 10 ? seconds.toFixed(1) : Math.round(seconds)}s`
+  const mins = Math.floor(seconds / 60)
+  if (mins < 60) return `${mins}m ${Math.round(seconds % 60)}s`
+  return `${Math.floor(mins / 60)}h ${mins % 60}m`
+}
+
 export function uid(prefix = ''): string {
   return prefix + Math.random().toString(36).slice(2, 10)
 }

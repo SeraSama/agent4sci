@@ -49,6 +49,9 @@ class ToolContext:
     env_passthrough: list[str] = field(default_factory=list)
     auto_mode: bool = False
     permission_mode: str = "ask_risky"  # ask_all | ask_risky | allow_all | custom (see agent/permissions.py)
+    # Set when the user answered "allow, and stop asking" on a risky-command prompt.  It is restored from
+    # the conversation on every rebuild, because the agent is rebuilt whenever a setting changes.
+    shell_guard_allowed: bool = False
     conversation_id: str | None = None
     run_id: str | None = None
     project_id: str | None = None

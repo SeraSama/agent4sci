@@ -153,7 +153,7 @@ def _text(data: bytes) -> str:
 async def _guard(command: str, ctx: ToolContext) -> None:
     """Ask a human before risky commands; refuse them when nobody is watching."""
     reason = None
-    if guards_shell(ctx.permission_mode):
+    if guards_shell(ctx.permission_mode) and not ctx.shell_guard_allowed:
         reason = dangerous_reason(command)
         if reason is None and ctx.permission_mode != "ask_all":
             # in ask_all the whole exec category already asks, so this check would only duplicate the prompt
@@ -166,11 +166,15 @@ async def _guard(command: str, ctx: ToolContext) -> None:
                             "确实需要时，把权限模式设为「全部允许」。")
         answer = await ctx.interactions.ask(
             "approval", f"允许执行有风险的命令？（{reason}）",
-            {"tool": "shell", "category": "exec.shell", "input": {"command": command}, "reason": reason},
+            {"tool": "shell", "category": "exec.shell", "input": {"command": command}, "reason": reason,
+             "guard": "shell"},
             topics=ctx.topics,
         )
         if answer.get("decision") != "allow":
             raise ToolError(f"用户拒绝执行该命令。{answer.get('note') or ''}".strip())
+        if answer.get("always"):
+            # Persisted by the server against the conversation; this keeps the rest of the run quiet too.
+            ctx.shell_guard_allowed = True
     gate = ctx.services.get("skill_gate")
     if gate is not None:
         denied = await gate(command, ctx)
