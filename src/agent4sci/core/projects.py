@@ -63,12 +63,25 @@ class ProjectSettings(BaseModel):
     mcp_servers: list[str] | None = None  # None = all globally enabled servers
 
 
+class ExtraFolder(BaseModel):
+    """A folder outside the project the agent may also use. Read-only unless you say otherwise."""
+
+    path: str
+    write: bool = False
+
+    @property
+    def resolved(self) -> Path:
+        return Path(self.path).expanduser()
+
+
 class Project(BaseModel):
     id: str = Field(default_factory=lambda: "p_" + uuid.uuid4().hex[:10])
     name: str
     path: str
     description: str = ""
     domains: list[str] = Field(default_factory=list)
+    # `path` is the main folder; these are the secondary ones, each with its own access level.
+    extra_folders: list[ExtraFolder] = Field(default_factory=list)
     created: float = Field(default_factory=time.time)
     settings: ProjectSettings = Field(default_factory=ProjectSettings)
 

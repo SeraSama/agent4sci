@@ -1,11 +1,12 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Brain, BrainCircuit, ChevronDown, ChevronRight, Ghost, Globe, Layers, MessageSquare, MessagesSquare, Plus,
+import { Anchor, Brain, BrainCircuit, ChevronDown, ChevronRight, Ghost, Globe, Layers, MessageSquare, MessagesSquare, Plus,
   Pencil, Save, Search, Send, ShieldCheck, Sparkles, Square, Trash2, UserRound, FolderKanban, BookmarkPlus,
-  Archive, BookMarked, Clock, CornerDownRight, FlaskConical, ListOrdered, Puzzle, TriangleAlert } from 'lucide-react'
+  Archive, ArchiveRestore, BookMarked, Clock, CornerDownRight, FlaskConical, ListOrdered, Puzzle, TriangleAlert } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { navigate, useRoute } from '@/app/router'
 import { InteractionCard, TOOL_LABELS, ToolCallCard, type ToolCallView } from '@/components/agent'
+import { Avatar } from '@/components/Avatar'
 import { FileChip } from '@/components/FileChip'
 import { Markdown } from '@/components/Markdown'
 import { Marquee } from '@/components/Marquee'
@@ -15,6 +16,7 @@ import { Badge, Button, Dialog, Empty, Input, Select, Spinner, Tip } from '@/com
 import { del, errorMessage, get, patch, post, put } from '@/lib/api'
 import { useEvents } from '@/lib/events'
 import { useApp, useCurrentProject, useModels, useProjects } from '@/lib/store'
+import { useUi } from '@/lib/uistore'
 import type { Block, ChatMessage, Conversation, HarnessProfile, Interaction, MemoryMode } from '@/lib/types'
 import { cn, costLabel, formatCost, formatDuration, formatTime, formatTokens, toast } from '@/lib/utils'
 
@@ -35,8 +37,11 @@ export default function ChatPage() {
   )
 }
 
-function useConversations() {
-  return useQuery({ queryKey: ['conversations'], queryFn: () => get<Conversation[]>('/conversations') })
+function useConversations(includeArchived = false) {
+  return useQuery({
+    queryKey: ['conversations', includeArchived],
+    queryFn: () => get<Conversation[]>(includeArchived ? '/conversations?archived=true' : '/conversations'),
+  })
 }
 
 async function createConversation(body: Record<string, any>): Promise<Conversation> {
@@ -45,7 +50,8 @@ async function createConversation(body: Record<string, any>): Promise<Conversati
 
 function ConversationList({ activeId }: { activeId?: string }) {
   const { t } = useTranslation()
-  const { data } = useConversations()
+  const [showArchived, setShowArchived] = useState(false)
+  const { data } = useConversations(showArchived)
   const project = useCurrentProject()
   const { data: projects } = useProjects()
   const qc = useQueryClient()
@@ -58,15 +64,29 @@ function ConversationList({ activeId }: { activeId?: string }) {
       byProject.set(key, [...(byProject.get(key) ?? []), c])
     }
     const order = ['__temp', ...(project ? [project.id] : []), ...[...byProject.keys()].filter((k) => !k.startsWith('__') && k !== project?.id), '__none']
+    // The main conversation sits on top of its project, with whatever it spawned gathered under it.
+    const rank = (c: Conversation) => (c.archived ? 3 : c.is_main ? 0 : c.spawned_by ? 1 : 2)
     return order.filter((k) => byProject.has(k)).map((k) => ({
-      key: k, items: byProject.get(k)!,
-      label: k === '__temp' ? t('临时对话') : k === '__none' ? t('未归属项目') : projects?.find((p) => p.id === k)?.name ?? t('项目'),
+      key: k, items: [...byProject.get(k)!].sort((a, b) => rank(a) - rank(b)),
+      label: k === '__temp' ? t('临时对话') : k === '__none' ? t('未归属项目')
+        : projects?.find((p) => p.id === k)?.name ?? t('已移除的项目'),
     }))
   }, [filtered, project, projects, t])
 
   const start = async (temporary: boolean) => {
     try {
       const conv = await createConversation({ project_id: temporary ? null : project?.id ?? null, temporary })
+      await qc.invalidateQueries({ queryKey: ['conversations'] })
+      navigate('chat', conv.id)
+    } catch (err) {
+      toast.error(errorMessage(err))
+    }
+  }
+
+  const openMain = async () => {
+    if (!project) return
+    try {
+      const conv = await post<Conversation>(`/projects/${project.id}/main-conversation`, {})
       await qc.invalidateQueries({ queryKey: ['conversations'] })
       navigate('chat', conv.id)
     } catch (err) {
@@ -82,10 +102,25 @@ function ConversationList({ activeId }: { activeId?: string }) {
           <Button size="sm" variant="outline" onClick={() => start(true)}><Ghost className="h-3.5 w-3.5" />{t('临时')}</Button>
         </Tip>
       </div>
+      {project && (
+        <div className="px-3 pb-2">
+          <Tip content={t('项目主对话：常驻在这个项目里，可以自己在项目内开对话、把活分出去')}>
+            <Button size="sm" variant="outline" className="w-full justify-start"
+              onClick={() => void openMain()}><Anchor className="h-3.5 w-3.5" />{t('主对话')}</Button>
+          </Tip>
+        </div>
+      )}
       <div className="px-3 pb-2">
         <div className="relative">
           <Search className="absolute top-2 left-2 h-3.5 w-3.5 text-subtle" />
-          <Input className="h-7.5 pl-7 text-xs" placeholder={t('搜索对话')} value={q} onChange={(e) => setQ(e.target.value)} />
+          <Input className="h-7.5 pr-8 pl-7 text-xs" placeholder={t('搜索对话')} value={q} onChange={(e) => setQ(e.target.value)} />
+          <Tip content={showArchived ? t('隐藏已归档的对话') : t('显示已归档的对话')}>
+            <button onClick={() => setShowArchived((v) => !v)}
+              className={cn('absolute top-1.5 right-1.5 rounded p-1 transition',
+                showArchived ? 'text-primary' : 'text-subtle hover:text-fg')}>
+              <Archive className="h-3.5 w-3.5" />
+            </button>
+          </Tip>
         </div>
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-3">
@@ -106,7 +141,7 @@ function ConversationRow({ conv, active }: { conv: Conversation; active: boolean
   const { t } = useTranslation()
   const qc = useQueryClient()
   const mode = MEMORY_MODES.find((m) => m.value === conv.memory_mode) ?? MEMORY_MODES[0]
-  const Icon = conv.temporary ? Ghost : mode.icon
+  const Icon = conv.temporary ? Ghost : conv.is_main ? Anchor : mode.icon
   const refresh = () => qc.invalidateQueries({ queryKey: ['conversations'] })
 
   const rename = async () => {
@@ -126,11 +161,16 @@ function ConversationRow({ conv, active }: { conv: Conversation; active: boolean
 
   const menu = useContextMenu([
     { label: t('重命名'), icon: <Pencil className="h-3.5 w-3.5" />, onSelect: () => void rename() },
-    { label: t('归档'), icon: <Archive className="h-3.5 w-3.5" />, disabled: conv.temporary, onSelect: async () => {
-      await patch(`/conversations/${conv.id}`, { archived: true })
-      await refresh()
-      if (active) navigate('chat')
-    } },
+    conv.archived
+      ? { label: t('取消归档'), icon: <ArchiveRestore className="h-3.5 w-3.5" />, onSelect: async () => {
+          await patch(`/conversations/${conv.id}`, { archived: false })
+          await refresh()
+        } }
+      : { label: t('归档'), icon: <Archive className="h-3.5 w-3.5" />, disabled: conv.temporary, onSelect: async () => {
+          await patch(`/conversations/${conv.id}`, { archived: true })
+          await refresh()
+          if (active) navigate('chat')
+        } },
     { label: t('删除'), icon: <Trash2 className="h-3.5 w-3.5" />, danger: true, separatorBefore: true,
       onSelect: () => void remove() },
   ])
@@ -139,10 +179,14 @@ function ConversationRow({ conv, active }: { conv: Conversation; active: boolean
     <>
       <button {...menu.trigger} onClick={() => navigate('chat', conv.id)}
         className={cn('group flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm transition',
-          active ? 'bg-primary/12 text-fg' : 'text-muted hover:bg-surface-2 hover:text-fg')}>
-        <Icon className={cn('h-3.5 w-3.5 shrink-0', conv.temporary && 'text-warning')} />
+          active ? 'bg-primary/12 text-fg' : 'text-muted hover:bg-surface-2 hover:text-fg',
+          conv.archived && 'opacity-55')}>
+        {conv.spawned_by && <CornerDownRight className="h-3 w-3 shrink-0 text-subtle" />}
+        <Icon className={cn('h-3.5 w-3.5 shrink-0', conv.temporary && 'text-warning', conv.is_main && 'text-primary')} />
         <span className="min-w-0 flex-1 truncate">{conv.title}</span>
-        {conv.status === 'running' ? <span className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-primary" />
+        {conv.pending ? (
+          <Tip content={t('在等你回答或审批')}><span className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-warning" /></Tip>
+        ) : conv.status === 'running' ? <span className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-primary" />
           : <span className="shrink-0 text-[10px] text-subtle">{formatTime(conv.updated)}</span>}
       </button>
       {menu.menu}
@@ -233,6 +277,9 @@ function ChatView({ id }: { id: string }) {
     queryKey: ['conversation', id],
     queryFn: () => get<Conversation & { messages: ChatMessage[]; pending: Interaction[] }>(`/conversations/${id}`),
   })
+  // The agent's face follows its harness, so switching harness mid-conversation changes it too.
+  const { data: harnesses } = useQuery({ queryKey: ['harnesses'], queryFn: () => get<HarnessProfile[]>('/harnesses') })
+  const agentAvatar = harnesses?.find((h) => h.id === data?.harness_id)?.avatar
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [live, setLive] = useState<Live>({ text: '', reasoning: '' })
   const [running, setRunning] = useState<Record<string, boolean>>({})
@@ -344,7 +391,8 @@ function ChatView({ id }: { id: string }) {
               <Ghost className="mr-1 inline h-3.5 w-3.5 text-warning" />{t('临时对话：内容只保存在内存里，不读写任何记忆；删除或退出应用后丢失。')}
             </div>
           )}
-          <MessageList messages={messages} running={running} results={results} convId={id} memoryMode={data.memory_mode} />
+          <MessageList messages={messages} running={running} results={results} convId={id}
+            memoryMode={data.memory_mode} agentAvatar={agentAvatar} />
           {status === 'idle' && !!data.last_turn_seconds && messages.length > 0 && (
             <div className="pl-10 text-[11px] text-subtle">
               {t('本轮用时 {{d}}，{{at}} 结束', { d: formatDuration(data.last_turn_seconds), at: formatTime(data.updated) })}
@@ -352,7 +400,7 @@ function ChatView({ id }: { id: string }) {
           )}
           {status === 'running' && (live.reasoning || live.text) && (
             <div className="flex gap-3">
-              <Avatar role="assistant" />
+              <Avatar role="assistant" value={agentAvatar} />
               <div className="min-w-0 flex-1">
                 {live.reasoning && <Reasoning text={live.reasoning} streaming />}
                 {live.text && <Markdown className="a4s-caret text-sm" text={live.text} />}
@@ -379,14 +427,6 @@ function ChatView({ id }: { id: string }) {
   )
 }
 
-function Avatar({ role }: { role: 'user' | 'assistant' }) {
-  return role === 'user' ? (
-    <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-surface-2 text-muted"><UserRound className="h-3.5 w-3.5" /></div>
-  ) : (
-    <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/15 text-primary"><Sparkles className="h-3.5 w-3.5" /></div>
-  )
-}
-
 function Reasoning({ text, streaming }: { text: string; streaming?: boolean }) {
   const { t } = useTranslation()
   const [open, setOpen] = useState(!!streaming)
@@ -405,14 +445,16 @@ function textOf(blocks: Block[]): string {
   return blocks.filter((b) => b.type === 'text').map((b) => (b as { text: string }).text).join('')
 }
 
-function MessageList({ messages, running, results, convId, memoryMode }: {
+function MessageList({ messages, running, results, convId, memoryMode, agentAvatar }: {
   messages: ChatMessage[]
   running: Record<string, boolean>
   results: Record<string, { preview: string; is_error: boolean; duration: number }>
   convId: string
   memoryMode: MemoryMode
+  agentAvatar?: string
 }) {
   const { t } = useTranslation()
+  const userAvatar = useUi((s) => s.ui.userAvatar)
   const resultBlocks = useMemo(() => {
     const map: Record<string, Extract<Block, { type: 'tool_result' }>> = {}
     for (const m of messages) for (const b of m.content) if (b.type === 'tool_result') map[b.call_id] = b
@@ -454,7 +496,7 @@ function MessageList({ messages, running, results, convId, memoryMode }: {
           }
           return (
             <div key={idx} className="group flex flex-row-reverse gap-3">
-              <Avatar role="user" />
+              <Avatar role="user" value={userAvatar} />
               <div className="max-w-[85%] rounded-2xl rounded-tr-sm bg-primary/10 px-3.5 py-2 text-sm">
                 <Markdown text={text} />
               </div>
@@ -468,7 +510,7 @@ function MessageList({ messages, running, results, convId, memoryMode }: {
         if (!text && !reasoning && !calls.length) return null
         return (
           <div key={idx} className="group flex gap-3">
-            <Avatar role="assistant" />
+            <Avatar role="assistant" value={agentAvatar} />
             <div className="flex min-w-0 flex-1 flex-col gap-2">
               {reasoning && <Reasoning text={reasoning} />}
               {text && <Markdown className="text-sm" text={text} />}
@@ -552,6 +594,16 @@ function ChatHeader({ conv, usage }: { conv: Conversation; usage: { context: num
           <Marquee>{conv.title}</Marquee>
         </button>
       )}
+      {conv.is_main && (
+        <Tip content={t('项目主对话：它可以在本项目里开新对话、把活分给别的 agent，派出来的对话你随时能点进去接手')}>
+          <Badge tone="primary"><Anchor className="h-3 w-3" />{t('主对话')}</Badge>
+        </Tip>
+      )}
+      {conv.spawned_by && (
+        <Tip content={t('这个对话是主对话派生出来的。你可以直接在这儿接着聊，或者接手。')}>
+          <Badge><CornerDownRight className="h-3 w-3" />{t('主对话派生')}</Badge>
+        </Tip>
+      )}
       {conv.temporary ? (
         <Badge tone="warning"><Ghost className="h-3 w-3" />{t('临时 · 无记忆')}</Badge>
       ) : (
@@ -567,6 +619,10 @@ function ChatHeader({ conv, usage }: { conv: Conversation; usage: { context: num
         <div className="flex items-center gap-1">
           <Layers className="h-3.5 w-3.5 text-subtle" />
           <Select className="h-7 w-auto max-w-36 text-xs" value={conv.harness_id} onChange={(e) => update({ harness_id: e.target.value })}>
+            {/* A deleted Harness would leave this blank and the conversation silently on the default one. */}
+            {harnesses && !harnesses.some((h) => h.id === conv.harness_id) && (
+              <option value={conv.harness_id}>{t('{{id}}（已删除，按默认运行）', { id: conv.harness_id })}</option>
+            )}
             {harnesses?.map((h) => <option key={h.id} value={h.id}>{t(h.name)}</option>)}
           </Select>
         </div>
@@ -617,7 +673,9 @@ function ChatHeader({ conv, usage }: { conv: Conversation; usage: { context: num
         }}><Save className="h-3.5 w-3.5" />{t('转为正式对话')}</Button>
       )}
       <Tip content={t('归档')}>
-        <Button size="icon" variant="ghost" onClick={() => update({ archived: true }).then(() => navigate('chat'))}><Archive className="h-3.5 w-3.5" /></Button>
+        {conv.archived
+          ? <Button size="icon" variant="ghost" onClick={() => void update({ archived: false })}><ArchiveRestore className="h-3.5 w-3.5" /></Button>
+          : <Button size="icon" variant="ghost" onClick={() => update({ archived: true }).then(() => navigate('chat'))}><Archive className="h-3.5 w-3.5" /></Button>}
       </Tip>
       <Button size="icon" variant="ghost" className="text-danger" onClick={async () => {
         if (!(await confirmAction({ title: t('删除这个对话？'), description: t('它的对话级记忆也会一起删除。'), danger: true }))) return
@@ -680,6 +738,16 @@ function readDraft(key: string): string {
   }
 }
 
+/** Files picked but not sent yet, kept with the draft so leaving the conversation does not lose them. */
+function readDraftFiles(key: string): Attachment[] {
+  try {
+    const raw = JSON.parse(localStorage.getItem(`${key}.files`) ?? '[]')
+    return Array.isArray(raw) ? raw.filter((f) => f && typeof f.path === 'string' && typeof f.name === 'string') : []
+  } catch {
+    return []
+  }
+}
+
 function Composer({ conv, running }: { conv: Conversation; running: boolean }) {
   const { t } = useTranslation()
   const qc = useQueryClient()
@@ -687,7 +755,7 @@ function Composer({ conv, running }: { conv: Conversation; running: boolean }) {
   // Leaving a conversation used to throw away whatever you had typed. Keep it per conversation.
   const draftKey = `a4s.draft.${id}`
   const [text, setText] = useState(() => readDraft(draftKey))
-  const [files, setFiles] = useState<Attachment[]>([])
+  const [files, setFiles] = useState<Attachment[]>(() => readDraftFiles(draftKey))
   const [dragging, setDragging] = useState(false)
   const [sending, setSending] = useState(false)
   const composing = useRef(false)
@@ -697,15 +765,20 @@ function Composer({ conv, running }: { conv: Conversation; running: boolean }) {
   })
 
   // Switching conversations does not always remount this component, so reload the draft by hand.
-  useEffect(() => setText(readDraft(`a4s.draft.${id}`)), [id])
+  useEffect(() => {
+    setText(readDraft(`a4s.draft.${id}`))
+    setFiles(readDraftFiles(`a4s.draft.${id}`))
+  }, [id])
   useEffect(() => {
     try {
       if (text) localStorage.setItem(draftKey, text)
       else localStorage.removeItem(draftKey)
+      if (files.length) localStorage.setItem(`${draftKey}.files`, JSON.stringify(files))
+      else localStorage.removeItem(`${draftKey}.files`)
     } catch {
       // storage unavailable
     }
-  }, [text, draftKey])
+  }, [text, files, draftKey])
 
   const setField = async (patchBody: Record<string, unknown>) => {
     try {

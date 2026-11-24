@@ -2,12 +2,18 @@
 
 export type MemoryMode = 'global' | 'project' | 'conversation' | 'none'
 
+export interface ExtraFolder {
+  path: string
+  write: boolean
+}
+
 export interface Project {
   id: string
   name: string
   path: string
   description: string
   domains: string[]
+  extra_folders?: ExtraFolder[]
   created: number
   settings: {
     trusted: boolean
@@ -115,6 +121,9 @@ export interface Conversation {
   last_turn_seconds?: number
   tokens: Record<string, number>
   status: 'idle' | 'running'
+  is_main?: boolean
+  spawned_by?: string | null
+  pending?: number  // approvals/questions waiting for the user in this conversation
 }
 
 export interface Interaction {
@@ -131,6 +140,7 @@ export interface HarnessProfile {
   id: string
   name: string
   description: string
+  avatar?: string
   role: string | null
   role_prompt: string
   include_rules: boolean

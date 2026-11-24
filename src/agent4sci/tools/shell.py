@@ -50,19 +50,31 @@ _PATH_LIKE = re.compile(r"(?<![\w$=.-])(~[\w./-]*|/[\w][\w./-]{2,}|[A-Za-z]:\\[\
 _RELATIVE_UP = re.compile(r"(?<![\w$=./-])(\.\.[\w./-]*)")  # only when ".." starts the path
 
 
-def outside_workspace(command: str, workspace: Path) -> str | None:
-    """A path in the command that points outside the project (and is not a system or cache location)."""
+def outside_workspace(command: str, workspace: Path, extra: "list[Path] | None" = None) -> str | None:
+    """A path in the command that points outside the project (and is not a system or cache location).
+
+    ``extra`` are the project's secondary folders: the user named them, so they count as inside.
+    """
     try:
         root = workspace.resolve()
         home = Path.home().resolve()
     except (OSError, RuntimeError):
         return None
+    allowed = [root]
+    for other in extra or []:
+        try:
+            allowed.append(other.resolve())
+        except (OSError, RuntimeError):
+            continue
+
+    def inside(target: Path) -> bool:
+        return any(target == a or a in target.parents for a in allowed)
     for raw in _RELATIVE_UP.findall(command):  # ../somewhere-else can leave the project too
         try:
             target = (workspace / raw).resolve()
         except (OSError, RuntimeError, ValueError):
             continue
-        if target != root and root not in target.parents:
+        if not inside(target):
             return raw
     for raw in _PATH_LIKE.findall(command):
         if raw.startswith(_SYSTEM_PREFIXES):
@@ -71,7 +83,7 @@ def outside_workspace(command: str, workspace: Path) -> str | None:
             target = Path(raw).expanduser().resolve()
         except (OSError, RuntimeError, ValueError):
             continue
-        if target == root or root in target.parents:
+        if inside(target):
             continue
         if any(str(target).startswith(str(home / cache)) for cache in _CACHE_DIRS):
             continue
@@ -157,7 +169,7 @@ async def _guard(command: str, ctx: ToolContext) -> None:
         reason = dangerous_reason(command)
         if reason is None and ctx.permission_mode != "ask_all":
             # in ask_all the whole exec category already asks, so this check would only duplicate the prompt
-            outside = outside_workspace(command, ctx.workspace)
+            outside = outside_workspace(command, ctx.workspace, ctx.allowed_roots)
             if outside is not None:
                 reason = f"访问项目之外的路径 {outside}"
     if reason is not None:

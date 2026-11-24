@@ -7,6 +7,7 @@ import { Area, AreaChart, ResponsiveContainer, Tooltip as ChartTooltip, XAxis, Y
 import { navigate, useRoute } from '@/app/router'
 import { InteractionCard } from '@/components/agent'
 import { CodeEditor } from '@/components/CodeEditor'
+import { AvatarPicker } from '@/components/AvatarPicker'
 import { askForText, confirmAction } from '@/components/confirm'
 import { useContextMenu } from '@/components/ContextMenu'
 import { Timeline } from '@/components/Timeline'
@@ -379,6 +380,9 @@ function ConfigForm({ profile }: { profile: HarnessProfile }) {
       <div className="grid grid-cols-2 gap-3">
         <Field label={t('名称')}><Input value={t(p.name)} onChange={(e) => set({ name: e.target.value })} /></Field>
         <Field label={t('描述')}><Input value={t(p.description)} onChange={(e) => set({ description: e.target.value })} /></Field>
+        <Field label={t('头像')} hint={t('用这个 Harness 的对话里，Agent 就长这样。')} className="col-span-2">
+          <AvatarPicker role="assistant" value={p.avatar ?? ''} onChange={(v) => set({ avatar: v })} />
+        </Field>
         <Field label={t('模型（空 = 按角色映射 / 默认）')}>
           <Select value={p.model_id ?? ''} onChange={(e) => set({ model_id: e.target.value || null })}>
             <option value="">{t('（默认）')}</option>{models?.models.map((m) => <option key={m.id} value={m.id}>{t(m.name)}</option>)}

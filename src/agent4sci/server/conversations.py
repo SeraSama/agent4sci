@@ -16,6 +16,7 @@ from ..agent.context import NOTICE_KIND, notice_message
 from ..agent.harness import HarnessBuilder, HarnessContext
 from ..core.paths import conversation_files_dir, conversation_memory_dir, temp_root
 from ..llm.types import Message, TextBlock
+from ..tools.base import ToolError
 
 if TYPE_CHECKING:  # pragma: no cover
     from ..core.app import AppServices
@@ -46,6 +47,10 @@ class Conversation(BaseModel):
     steer_mode: Literal["insert", "queue"] = "insert"
     run_seconds: float = 0.0  # time the agent actually spent working, summed over every turn
     last_turn_seconds: float = 0.0
+    # Every project has one standing "main" conversation whose agent can open further conversations in
+    # that project and hand them work; `spawned_by` is the main conversation that opened this one.
+    is_main: bool = False
+    spawned_by: str | None = None
     cost_unknown: bool = False  # some turns used a model without pricing, so cost_usd undercounts
     tokens: dict[str, int] = Field(default_factory=dict)
     status: Literal["idle", "running"] = "idle"
@@ -127,6 +132,21 @@ class ConversationManager:
                             memory_mode=mode, harness_id=harness_id, model_id=model_id, temporary=temporary)
         if temporary:
             self.temp_messages[conv.id] = []
+        return self.save(conv)
+
+    def main_conversation(self, project_id: str) -> Conversation:
+        """The project's standing main conversation, created the first time it is asked for."""
+        project = self.app.projects.get(project_id)
+        if project is None:
+            raise KeyError(project_id)
+        for conv in sorted(self.list(project_id, include_archived=True), key=lambda c: c.created):
+            if conv.is_main:
+                if conv.archived:  # asking for it again is how you get it back
+                    conv.archived = False
+                    self.save(conv)
+                return conv
+        conv = self.create(project_id=project_id, title=f"{project.name} · 主对话")
+        conv.is_main = True
         return self.save(conv)
 
     def update(self, conv_id: str, **fields: Any) -> Conversation:
@@ -258,6 +278,7 @@ class ConversationManager:
             memory_mode=conv.memory_mode, auto_mode=False, model_override=conv.model_id,
             permission_mode=conv.permission_mode,
         )
+        self._attach_desk(conv, ctx)
         agent = self.builder.build_agent(profile, ctx, history=history, system_override=conv.system_snapshot,
                                          on_message=on_message)
         # Restore the "stop asking me this" answers from earlier turns.
@@ -270,6 +291,22 @@ class ConversationManager:
             conv.system_snapshot = agent.system_prompt
             self.save(conv)
         return agent
+
+    def _attach_desk(self, conv: Conversation, ctx: HarnessContext) -> None:
+        """The main conversation also gets the tools for running the project's other conversations.
+
+        Done here rather than in a tool group so only the main conversation ever has them — which is what
+        stops a spawned conversation from spawning more — and so the harness preview shows the same thing
+        the agent actually gets.
+        """
+        if not (conv.is_main and ctx.project is not None):
+            return
+        from ..tools.project_agents import PROJECT_AGENT_TOOLS
+
+        desk = ProjectDesk(self, conv.id)
+        ctx.extra_tools.extend(PROJECT_AGENT_TOOLS)
+        ctx.extra_services["project_desk"] = desk
+        ctx.extra_sections.append(desk.prompt_section(self.builder.harnesses.get(conv.harness_id)))
 
     async def send(self, conv_id: str, text: str, files: list[str] | None = None) -> dict[str, Any]:
         conv = self.get(conv_id)
@@ -379,6 +416,15 @@ class ConversationManager:
         if pending:
             await self.send(conv_id, "\n\n".join(pending))
 
+    async def wait_idle(self, conv_id: str, timeout: float) -> bool:
+        """Wait until that conversation stops working. False means it timed out and is still going."""
+        deadline = time.monotonic() + max(1.0, timeout)
+        while time.monotonic() < deadline:
+            if not self._running(conv_id) and not self.queued.get(conv_id):
+                return True
+            await asyncio.sleep(0.25)
+        return not self._running(conv_id)
+
     def _record_duration(self, conv: Conversation, seconds: float) -> None:
         """How long this turn took, and how long the conversation has cost in total."""
         conv.last_turn_seconds = round(seconds, 1)
@@ -411,6 +457,12 @@ class ConversationManager:
     def stop(self, conv_id: str) -> bool:
         task = self.tasks.get(conv_id)
         self.app.interactions.cancel(f"conv:{conv_id}")
+        # "Stop" has to mean stopped: anything queued behind this turn would otherwise start a new one.
+        dropped = self.queued.pop(conv_id, [])
+        if dropped:
+            self._persist_message(self.get(conv_id), notice_message(
+                f"已停止。排在后面的 {len(dropped)} 条消息没有发出去：\n\n"
+                + "\n\n".join(f"> {t.strip()[:500]}" for t in dropped)))
         if task is not None and not task.done():
             task.cancel()
             return True
@@ -430,8 +482,10 @@ class ConversationManager:
 
     def harness_context(self, conv: Conversation) -> HarnessContext:
         project = self.app.projects.get(conv.project_id) if conv.project_id else None
-        return HarnessContext(workspace=self.workspace(conv), project=project, conversation_id=conv.id,
-                              topics=[f"conv:{conv.id}"], memory_mode=conv.memory_mode, model_override=conv.model_id)
+        ctx = HarnessContext(workspace=self.workspace(conv), project=project, conversation_id=conv.id,
+                             topics=[f"conv:{conv.id}"], memory_mode=conv.memory_mode, model_override=conv.model_id)
+        self._attach_desk(conv, ctx)
+        return ctx
 
     def transcript(self, conv_id: str) -> list[Message]:
         return [Message.model_validate({k: v for k, v in m.items() if k not in ("seq", "created")})
@@ -444,8 +498,158 @@ class ConversationManager:
             shutil.rmtree(temp_root() / conv_id, ignore_errors=True)
 
 
+
+def _ago(ts: float) -> str:
+    gap = max(0.0, time.time() - ts)
+    if gap < 90:
+        return "刚刚"
+    if gap < 3600:
+        return f"{gap / 60:.0f} 分钟前"
+    if gap < 86400:
+        return f"{gap / 3600:.0f} 小时前"
+    return f"{gap / 86400:.0f} 天前"
+
+
+def _took(seconds: float) -> str:
+    return f"{seconds / 60:.0f}分{seconds % 60:.0f}秒" if seconds >= 60 else f"{seconds:.0f}秒"
+
+
+class ProjectDesk:
+    """What a project's main conversation can do with the other conversations in its project.
+
+    Installed as the ``project_desk`` service for the main conversation only, which is also what stops a
+    spawned conversation from spawning more.
+    """
+
+    def __init__(self, manager: "ConversationManager", conv_id: str) -> None:
+        self.manager = manager
+        self.conv_id = conv_id
+
+    # ---- prompt ----------------------------------------------------------------------
+    def prompt_section(self, profile: Any) -> str:
+        mode = self.manager.get(self.conv_id).permission_mode or getattr(profile, "permission_mode", "ask_risky")
+        labels = {"ask_all": "总是询问", "ask_risky": "按需询问", "allow_all": "全部允许", "custom": "自定义"}
+        return (
+            "## 这是本项目的主对话\n\n"
+            "你常驻在这个项目里。除了自己动手，你还能在这个项目内**开新对话**，把活分给别的 agent：\n\n"
+            "- `start_conversation`：开一个对话并派活。它是**真实对话**，会出现在侧边栏，研究者随时能点进去看、"
+            "接着聊、或者直接接手。所以标题要写清楚，任务说明要自带上下文（对方看不到这边说过的话）。\n"
+            "- 默认 `wait=true`，等它做完把报告给你。几件互不依赖的事，先用 `wait=false` 全派出去，"
+            "再用 `list_conversations` / `read_conversation` 逐个收。\n"
+            "- `send_to_conversation` 追加要求或纠偏；`stop_conversation` 停掉跑偏的。\n\n"
+            "什么时候派活：一件事能独立交付、需要自己的上下文、或者几件事可以同时做。什么时候自己做：一两步就完事，"
+            "或者要用到你这边已有的上下文。\n"
+            "和 `delegate` 的区别：`delegate` 是一次性子代理，研究者看不到、也没法接手；派生对话会留下来。\n"
+            f"派生对话默认沿用本对话的 Harness、模型和安全级别（现在是：{labels.get(mode, mode)}）。"
+        )
+
+    # ---- helpers ---------------------------------------------------------------------
+    def _main(self) -> Conversation:
+        return self.manager.get(self.conv_id)
+
+    def _target(self, conv_id: str) -> Conversation:
+        main = self._main()
+        if conv_id == main.id:
+            raise ToolError("那是本对话自己。")
+        try:
+            conv = self.manager.get(conv_id)
+        except KeyError:
+            raise ToolError(f"找不到对话 {conv_id}。先用 list_conversations 看看有哪些。") from None
+        if conv.project_id != main.project_id:
+            raise ToolError("那个对话不属于本项目，你管不到它。")
+        return conv
+
+    def _readable(self, conv_id: str) -> list[dict[str, Any]]:
+        """Messages worth reading: anything with text, plus which tools were called. Bare tool results are noise."""
+        out = []
+        for m in self.manager.raw_messages(conv_id):
+            calls = [b.get("name") for b in m.get("content", []) if b.get("type") == "tool_call" and b.get("name")]
+            text = text_of(m).strip()
+            if text or calls:
+                out.append({"role": m.get("role"), "text": text, "calls": calls})
+        return out
+
+    # ---- the tools' actual work -------------------------------------------------------
+    async def start(self, title: str, task: str, harness: str | None, wait: bool, timeout: float) -> str:
+        main = self._main()
+        if main.project_id is None:
+            raise ToolError("本对话不属于任何项目。")
+        if harness:
+            known = {h.id for h in self.manager.builder.harnesses.list()}
+            if harness not in known:
+                raise ToolError(f"没有这个 Harness：{harness}。可选：{'、'.join(sorted(known))}")
+        child = self.manager.create(project_id=main.project_id, title=(title.strip()[:60] or "派生对话"),
+                                    harness_id=harness or main.harness_id, model_id=main.model_id)
+        child.spawned_by = main.id
+        child.permission_mode = main.permission_mode
+        child.steer_mode = main.steer_mode
+        self.manager.save(child)
+        return await self._hand_over(child.id, task, wait, timeout, opened=True)
+
+    async def send(self, conv_id: str, text: str, wait: bool, timeout: float) -> str:
+        conv = self._target(conv_id)
+        return await self._hand_over(conv.id, text, wait, timeout, opened=False)
+
+    async def _hand_over(self, conv_id: str, text: str, wait: bool, timeout: float, *, opened: bool) -> str:
+        outcome = await self.manager.send(conv_id, text)
+        conv = self.manager.get(conv_id)
+        tag = f"「{conv.title}」{conv.id}"
+        if outcome.get("status") == "queued":
+            return f"[{tag} 正在忙，这条排在它后面（队列里 {outcome['pending']} 条）。]"
+        if not wait:
+            verb = "已派出" if opened else "已送到"
+            return (f"[{verb}：{tag}。它在后台跑着，用 list_conversations / read_conversation 跟进；"
+                    "研究者也能在侧边栏点进去看。]")
+        finished = await self.manager.wait_idle(conv_id, timeout)
+        conv = self.manager.get(conv_id)
+        if not finished:
+            return (f"[{tag} 还在跑（等了 {_took(timeout)}）。它没有被停掉——晚点用 "
+                    f'read_conversation("{conv.id}") 收，或者 stop_conversation 停掉。]')
+        readable = self._readable(conv_id)
+        reply = next((m["text"] for m in reversed(readable) if m["role"] == "assistant" and m["text"]), "")
+        head = (f"[{tag} 跑完了，用时 {_took(conv.last_turn_seconds)}，花费 ${conv.cost_usd:.4f}]")
+        return f"{head}\n{reply or '（它没有留下文字结论，用 read_conversation 看它做了什么。）'}"
+
+    def listing(self) -> str:
+        main = self._main()
+        rows = [c for c in self.manager.list(main.project_id, include_archived=True) if c.id != main.id]
+        if not rows:
+            return "本项目里除了主对话还没有别的对话。用 start_conversation 开一个。"
+        lines = []
+        for c in rows[:40]:
+            last = next((m for m in reversed(self._readable(c.id))), None)
+            preview = (last["text"] or ("调用 " + "、".join(last["calls"]))) if last else "还没说话"
+            marks = ["正在运行" if c.status == "running" else "空闲"]
+            if c.spawned_by == main.id:
+                marks.append("你派的")
+            if c.archived:
+                marks.append("已归档")
+            lines.append(f"- {c.id}｜{c.title}｜{c.harness_id}｜{'，'.join(marks)}｜${c.cost_usd:.4f}｜"
+                         f"{_ago(c.updated)}\n  最后：{preview[:120].replace(chr(10), ' ')}")
+        return "\n".join(lines)
+
+    def read(self, conv_id: str, last: int) -> str:
+        conv = self._target(conv_id)
+        messages = self._readable(conv.id)[-last:]
+        state = "正在运行" if conv.status == "running" else "空闲"
+        head = f"对话「{conv.title}」（{conv.id}，{conv.harness_id}，{state}，${conv.cost_usd:.4f}）最近 {len(messages)} 条："
+        if not messages:
+            return head + "（还是空的）"
+        blocks = []
+        for m in messages:
+            who = "研究者/派活" if m["role"] == "user" else "它"
+            body = m["text"][:2000] or "（没有文字）"
+            if m["calls"]:
+                body += f"\n（调用了工具：{'、'.join(m['calls'][:12])}）"
+            blocks.append(f"[{who}] {body}")
+        return head + "\n\n" + "\n\n".join(blocks)
+
+    def stop(self, conv_id: str) -> bool:
+        return self.manager.stop(self._target(conv_id).id)
+
+
 def text_of(message: dict[str, Any]) -> str:
     return "".join(b.get("text", "") for b in message.get("content", []) if b.get("type") == "text")
 
 
-__all__ = ["Conversation", "ConversationManager", "TextBlock", "message_view", "text_of"]
+__all__ = ["Conversation", "ConversationManager", "ProjectDesk", "TextBlock", "message_view", "text_of"]

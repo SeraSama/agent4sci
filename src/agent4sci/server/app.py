@@ -30,7 +30,8 @@ from ..agent.permissions import MODE_HINTS, MODE_LABELS
 from ..core.diagnostics import run_diagnostics
 from ..core.models import PRESETS, ModelProfile, demo_mode, profile_from_preset
 from ..core.paths import app_data_dir, default_projects_dir
-from ..core.projects import RECOMMENDED_DIRS, REQUIRED_DIRS, WORKSPACE_DIRS, ProjectSettings, create_venv
+from ..core.projects import (RECOMMENDED_DIRS, REQUIRED_DIRS, WORKSPACE_DIRS, ExtraFolder,
+                             ProjectSettings, create_venv)
 from ..core.textio import decode_text, looks_binary
 from ..llm.pricing import resolve_pricing
 from ..loops import gitops
@@ -405,6 +406,8 @@ def create_app(state: ServerState) -> FastAPI:
         for key in ("name", "description", "domains"):
             if key in body:
                 setattr(project, key, body[key])
+        if "extra_folders" in body:
+            project.extra_folders = [ExtraFolder(**f) for f in (body["extra_folders"] or [])]
         if "settings" in body:
             project.settings = ProjectSettings(**{**project.settings.model_dump(), **body["settings"]})
         return _dump(services.projects.save(project))
@@ -506,7 +509,10 @@ def create_app(state: ServerState) -> FastAPI:
 
     @api.get("/conversations")
     async def list_conversations(project_id: str | None = None, archived: bool = False) -> list[dict[str, Any]]:
-        return [c.public() for c in convs.list(project_id, include_archived=archived)]
+        # `pending` is what makes "this one is waiting for you" visible in the list: a conversation the
+        # main conversation spawned can sit on an approval prompt nobody is looking at.
+        return [{**c.public(), "pending": len(services.interactions.pending(f"conv:{c.id}"))}
+                for c in convs.list(project_id, include_archived=archived)]
 
     @api.post("/conversations")
     async def create_conversation(body: dict[str, Any] = Body(default={})) -> dict[str, Any]:
@@ -514,6 +520,11 @@ def create_app(state: ServerState) -> FastAPI:
                             memory_mode=body.get("memory_mode"), harness_id=body.get("harness_id") or "assistant",
                             model_id=body.get("model_id"), temporary=bool(body.get("temporary")))
         return conv.public()
+
+    @api.post("/projects/{project_id}/main-conversation")
+    async def project_main_conversation(project_id: str) -> dict[str, Any]:
+        """The project's standing main conversation — the one whose agent can open the others."""
+        return convs.main_conversation(project_id).public()
 
     @api.get("/conversations/{conv_id}")
     async def get_conversation(conv_id: str) -> dict[str, Any]:

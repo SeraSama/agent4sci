@@ -3,6 +3,7 @@ import { Archive, Check, Download, ExternalLink, FolderOpen, Image, KeyRound, Mi
   Trash2, Upload, Volume2, X } from 'lucide-react'
 import { useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { AvatarPicker } from '@/components/AvatarPicker'
 import { confirmAction } from '@/components/confirm'
 import { useContextMenu } from '@/components/ContextMenu'
 import { Marquee } from '@/components/Marquee'
@@ -12,6 +13,7 @@ import { setLanguage } from '@/i18n'
 import { assetUrl, del, errorMessage, get, post, put } from '@/lib/api'
 import { playCue, type Cue } from '@/lib/sound'
 import { useInfo } from '@/lib/store'
+import { pickMediaPath, type Asset } from '@/lib/assets'
 import { useUi } from '@/lib/uistore'
 import { cn, formatBytes, formatTime, toast } from '@/lib/utils'
 import { TermsTab } from '@/pages/Terms'
@@ -39,6 +41,7 @@ export default function SettingsPage() {
         <TabPanel value="appearance" className="px-6 py-5">
           <div className="flex flex-col gap-7">
             <ThemeSettings />
+            <UserAvatar />
             <Layout />
             <BackgroundSettings />
             <Sounds />
@@ -360,6 +363,21 @@ function Diagnostics() {
   )
 }
 
+/** Your own face in every chat. The agent's comes from its harness instead. */
+function UserAvatar() {
+  const { t } = useTranslation()
+  const value = useUi((s) => s.ui.userAvatar)
+  const setUi = useUi((s) => s.set)
+  return (
+    <section className="max-w-2xl">
+      <SectionTitle>{t('你的头像')}</SectionTitle>
+      <p className="mb-2 text-xs text-muted">
+        {t('对话里代表你自己的头像，所有项目通用。Agent 的头像跟着它的 Harness 走，在 Harness 页设置。')}
+      </p>
+      <AvatarPicker role="user" value={value} onChange={(v) => void setUi({ userAvatar: v })} />
+    </section>
+  )
+}
 /** Where the sidebar sits. Stored with the other appearance prefs, so it rides along in a backup. */
 /** A diagnostic's verdict, drawn rather than typed. */
 function StatusMark({ ok }: { ok: boolean | null }) {
@@ -388,8 +406,6 @@ function Layout() {
   )
 }
 
-interface Asset { id: string; name: string; kind: 'image' | 'video'; size: number; created: number; heavy?: boolean }
-
 /** Background image or looping video, with the knobs that keep it readable. */
 function BackgroundSettings() {
   const { t } = useTranslation()
@@ -417,13 +433,11 @@ function BackgroundSettings() {
   }
 
   const pick = async () => {
-    if (window.a4s?.pickFile) {
-      const path = await window.a4s.pickFile('media')
-      if (path) await add(path)
-      return
-    }
-    const { askForText } = await import('@/components/confirm')
-    const path = await askForText({ title: t('导入背景素材'), input: { label: t('输入图片或视频的完整路径'), required: true } })
+    const path = await pickMediaPath(async () => {
+      const { askForText } = await import('@/components/confirm')
+      return askForText({ title: t('导入背景素材'),
+        input: { label: t('输入图片或视频的完整路径'), required: true } })
+    })
     if (path) await add(path)
   }
 

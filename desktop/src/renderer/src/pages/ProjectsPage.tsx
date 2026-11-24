@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { BookMarked, Check, ChevronRight, Cpu, File, FileText, Folder, FolderOpen, FolderPlus, GitCommitHorizontal,
+import { Anchor, BookMarked, Check, ChevronRight, Cpu, File, FileText, Folder, FolderOpen, FolderPlus, GitCommitHorizontal,
   Lightbulb, MessageSquare, Pencil, Plus, RotateCcw, ShieldCheck, Sparkles, Trash2, TriangleAlert, Workflow } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -7,12 +7,13 @@ import { navigate, useRoute } from '@/app/router'
 import { askForText, confirmAction } from '@/components/confirm'
 import { useContextMenu } from '@/components/ContextMenu'
 import { Markdown } from '@/components/Markdown'
-import { Badge, Button, Card, Dialog, Empty, Field, Input, PageHeader, Select, SectionTitle, Spinner, Switch,
-  TabPanel, Tabs, Textarea } from '@/components/ui'
+import { Marquee } from '@/components/Marquee'
+import { Badge, Button, Card, Dialog, Empty, Field, Input, PageHeader, Segmented, Select, SectionTitle, Spinner,
+  Switch, TabPanel, Tabs, Textarea } from '@/components/ui'
 import { del, errorMessage, get, post, put } from '@/lib/api'
 import { useEvents } from '@/lib/events'
 import { useApp, useProjects } from '@/lib/store'
-import type { MemoryMode, Project } from '@/lib/types'
+import type { ExtraFolder, MemoryMode, Project } from '@/lib/types'
 import { cn, formatBytes, formatTime, toast } from '@/lib/utils'
 import { MEMORY_MODES } from './ChatPage'
 
@@ -251,6 +252,125 @@ function ProjectDetail({ id }: { id: string }) {
   )
 }
 
+/** Every project has one standing conversation whose agent can open the others and hand them work. */
+function MainConversation({ project }: { project: Project }) {
+  const { t } = useTranslation()
+  const qc = useQueryClient()
+  const [busy, setBusy] = useState(false)
+  const open = async () => {
+    setBusy(true)
+    try {
+      const conv = await post<{ id: string }>(`/projects/${project.id}/main-conversation`, {})
+      await qc.invalidateQueries({ queryKey: ['conversations'] })
+      navigate('chat', conv.id)
+    } catch (err) {
+      toast.error(errorMessage(err))
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-3">
+      <div className="min-w-0">
+        <div className="flex items-center gap-2 text-sm font-medium"><Anchor className="h-4 w-4 text-primary" />{t('项目主对话')}</div>
+        <p className="mt-1 text-xs leading-relaxed text-subtle">
+          {t('这个项目的常驻对话。除了自己干活，它还能在项目里开新对话、把活分给别的 agent——派出来的都是真对话，会出现在侧边栏，你随时能点进去看或者接手。')}
+        </p>
+      </div>
+      <Button variant="primary" size="sm" disabled={busy} onClick={() => void open()}>
+        {busy ? <Spinner /> : <MessageSquare className="h-3.5 w-3.5" />}{t('打开主对话')}
+      </Button>
+    </div>
+  )
+}
+
+/** The main folder is the project itself; these are the extra ones, each read-only or read-write. */
+function ExtraFolders({ project, onSave }: {
+  project: Project
+  onSave: (patch: Record<string, any>) => Promise<void>
+}) {
+  const { t } = useTranslation()
+  const [dropping, setDropping] = useState(false)
+  const folders = project.extra_folders ?? []
+
+  const commit = (next: ExtraFolder[]) => onSave({ extra_folders: next })
+
+  const add = async (path: string) => {
+    const clean = path.trim()
+    if (!clean || folders.some((f) => f.path === clean)) return
+    await commit([...folders, { path: clean, write: false }])
+    toast.success(t('已添加副文件夹（默认只读）'))
+  }
+
+  return (
+    <>
+      <SectionTitle actions={
+        <div className="flex gap-2">
+          {window.a4s && (
+            <Button size="sm" variant="outline" onClick={async () => {
+              const dir = await window.a4s!.pickFolder()
+              if (dir) await add(dir)
+            }}><FolderPlus className="h-3.5 w-3.5" />{t('选择文件夹')}</Button>
+          )}
+          <Button size="sm" variant="ghost" onClick={async () => {
+            const path = await askForText({ title: t('添加副文件夹'),
+              input: { label: t('输入文件夹的完整路径'), required: true } })
+            if (path) await add(path)
+          }}>{t('输入路径')}</Button>
+        </div>
+      }>{t('文件夹')}</SectionTitle>
+
+      <div className="mb-2 flex items-center gap-2 rounded-md border border-border bg-surface-2 px-3 py-2">
+        <Folder className="h-3.5 w-3.5 shrink-0 text-primary" />
+        <Marquee className="min-w-0 flex-1 font-mono text-[11px]">{project.path}</Marquee>
+        <Badge tone="primary">{t('主文件夹')}</Badge>
+      </div>
+
+      <div
+        onDragOver={(e) => { e.preventDefault(); setDropping(true) }}
+        onDragLeave={() => setDropping(false)}
+        onDrop={(e) => {
+          e.preventDefault()
+          setDropping(false)
+          const file = e.dataTransfer.files?.[0]
+          const path = file && window.a4s?.pathForFile(file)
+          if (path) void add(path)
+          else {
+            const text = e.dataTransfer.getData('text').trim()
+            if (text) void add(text)
+            else toast.error(t('没取到路径，用上面的「选择文件夹」。'))
+          }
+        }}
+        className={cn('flex flex-col gap-1.5 rounded-lg border border-dashed p-2 transition',
+          dropping ? 'border-primary bg-primary/5' : 'border-border')}
+      >
+        {folders.length === 0 && (
+          <div className="px-2 py-4 text-center text-xs text-subtle">
+            {t('把文件夹拖到这里，或用右上角的按钮添加。适合放在别处的原始数据、共享盘、外置硬盘。')}
+          </div>
+        )}
+        {folders.map((f) => (
+          <div key={f.path} className="flex items-center gap-2 rounded-md border border-border px-2.5 py-1.5">
+            <Folder className="h-3.5 w-3.5 shrink-0 text-muted" />
+            <Marquee className="min-w-0 flex-1 font-mono text-[11px]" title={f.path}>{f.path}</Marquee>
+            <Segmented size="sm" value={f.write ? 'write' : 'read'}
+              onChange={(v) => void commit(folders.map((x) => (x.path === f.path ? { ...x, write: v === 'write' } : x)))}
+              options={[{ value: 'read' as const, label: t('只读') }, { value: 'write' as const, label: t('可读写') }]} />
+            <Button size="icon" variant="ghost" className="text-danger" onClick={async () => {
+              if (!(await confirmAction({ title: t('移除副文件夹？'),
+                description: t('只是不再让 Agent 访问它，磁盘上的文件不动。'), danger: true, confirmLabel: t('移除') }))) return
+              await commit(folders.filter((x) => x.path !== f.path))
+            }}><Trash2 className="h-3.5 w-3.5" /></Button>
+          </div>
+        ))}
+      </div>
+      <p className="mt-2 text-[11px] leading-relaxed text-subtle">
+        {t('只读的文件夹 Agent 能读能搜但写不进去；标成可读写就和主文件夹一样。命令行访问这些文件夹时也不会再被当成「跑出项目」而拦截。')}
+      </p>
+    </>
+  )
+}
+
 function Overview({ project, onChange }: { project: Project; onChange: () => void }) {
   const { t } = useTranslation()
   const qc = useQueryClient()
@@ -277,6 +397,8 @@ function Overview({ project, onChange }: { project: Project; onChange: () => voi
   const env = project.environment ?? {}
   return (
     <div className="grid max-w-5xl gap-5 lg:grid-cols-2">
+      <Card className="p-4 lg:col-span-2"><MainConversation project={project} /></Card>
+      <Card className="p-4 lg:col-span-2"><ExtraFolders project={project} onSave={save} /></Card>
       <Card className="p-4">
         <SectionTitle>{t('计算环境')}</SectionTitle>
         <div className="flex flex-col gap-2 text-sm">

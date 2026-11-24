@@ -439,3 +439,12 @@ def test_a_finished_turn_records_how_long_it_took(client):
     done = wait_for(lambda: (lambda d: d if d["status"] == "idle" and d["run_seconds"] > 0 else None)(
         client.get(f"/api/conversations/{conv['id']}", headers=H).json()))
     assert done["last_turn_seconds"] > 0 and done["run_seconds"] >= done["last_turn_seconds"]
+
+def test_a_project_has_exactly_one_main_conversation(client, tmp_path):
+    project = make_project(client, tmp_path)
+    main = client.post(f"/api/projects/{project['id']}/main-conversation", headers=H).json()
+    assert main["is_main"] and main["project_id"] == project["id"] and "主对话" in main["title"]
+    assert client.post(f"/api/projects/{project['id']}/main-conversation", headers=H).json()["id"] == main["id"]
+    listing = client.get(f"/api/conversations?project_id={project['id']}", headers=H).json()
+    assert [c["id"] for c in listing if c["is_main"]] == [main["id"]]
+    assert client.post("/api/projects/p_missing/main-conversation", headers=H).status_code == 404

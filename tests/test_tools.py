@@ -219,7 +219,7 @@ async def test_files_handed_over_by_the_user_are_readable_outside_the_workspace(
         await call(fs.read_file, ctx, path=str(outside))
     ctx.readonly_roots.append(outside.resolve())  # what ConversationManager does for attached files
     assert "a,b" in (await call(fs.read_file, ctx, path=str(outside))).as_text()
-    with pytest.raises(ToolError, match="不在允许的工作区范围"):
+    with pytest.raises(ToolError, match="只给了读取权限"):  # handed over for reading, not for writing
         await call(fs.write_file, ctx, path=str(outside), content="nope")
 
 

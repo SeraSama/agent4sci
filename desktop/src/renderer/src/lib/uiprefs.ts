@@ -19,12 +19,14 @@ export interface SoundPrefs {
 
 export interface UiPrefs {
   sidebarSide: 'left' | 'right'
+  userAvatar: string  // "" = the default mark, "asset:<id>" = an imported image, else drawn as text
   background: BackgroundPrefs
   sound: SoundPrefs
 }
 
 export const DEFAULT_UI: UiPrefs = {
   sidebarSide: 'left',
+  userAvatar: '',
   background: { asset: null, kind: null, opacity: 0.3, blur: 0, dim: 0.25, fit: 'cover', region: 'window' },
   sound: { enabled: false, volume: 0.5 },
 }

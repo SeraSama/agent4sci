@@ -65,7 +65,8 @@ function Shell() {
     get<{ language: string }>('/settings').then((s) => s.language && setLanguage(s.language)).catch(() => undefined)
     // Keep lists fresh when the backend reports changes, and play the matching cue.
     return subscribe('', (e) => {
-      if (e.type === 'conversation.status') void queryClient.invalidateQueries({ queryKey: ['conversations'] })
+      if (e.type === 'conversation.status' || e.type.startsWith('interaction.'))
+        void queryClient.invalidateQueries({ queryKey: ['conversations'] })
       if (e.type.startsWith('run.')) void queryClient.invalidateQueries({ queryKey: ['runs'] })
       if (e.type === 'catalog.done') void queryClient.invalidateQueries({ queryKey: ['skills-catalog'] })
       const cue = cueFor(e.type, e.data)

@@ -88,6 +88,9 @@ class HarnessProfile(BaseModel):
     id: str = Field(default_factory=lambda: "h_" + uuid.uuid4().hex[:8])
     name: str
     description: str = ""
+    # What the agent looks like in a chat.  "" = the default mark; "asset:<id>" = an imported image;
+    # anything else is rendered as text, so an emoji or one or two letters both work.
+    avatar: str = ""
     role: str | None = None  # used for role → model mapping
     role_prompt: str = DEFAULT_ASSISTANT_ROLE
     include_rules: bool = True
@@ -248,6 +251,12 @@ def memory_roots(ctx: HarnessContext) -> dict[str, Path]:
     elif ctx.run_id:
         roots["conversation"] = conversation_memory_dir(ctx.run_id)
     return roots
+
+
+def _extra_roots(project: Any, *, write: bool) -> list[Path]:
+    """The project's secondary folders at the requested access level, skipping ones that are gone."""
+    folders = getattr(project, "extra_folders", None) or []
+    return [f.resolved for f in folders if bool(f.write) is write and f.resolved.exists()]
 
 
 class HarnessBuilder:
@@ -414,7 +423,8 @@ class HarnessBuilder:
         }
         tool_ctx = ToolContext(
             workspace=ctx.workspace,
-            readonly_roots=parts["skills"].readonly_roots(),
+            readonly_roots=[*parts["skills"].readonly_roots(), *_extra_roots(ctx.project, write=False)],
+            writable_roots=_extra_roots(ctx.project, write=True),
             emit=emit,
             interactions=self.app.interactions,
             services=services,
@@ -476,7 +486,9 @@ class HarnessBuilder:
         env_text = "" if plain else environment_block(self.environment(parts["model"], ctx))
         skills_text = SkillRegistry.prompt_block(parts["visible_skills"])
         memory_text = parts["memory"].prompt_block()
-        domain_text = "" if plain else "\n\n".join(self.domain_sections(ctx))
+        # Whatever actually gets appended to the prompt, so the preview's token count is the real one
+        # (the project main conversation's dispatch block arrives this way).
+        domain_text = "" if plain else "\n\n".join([*self.domain_sections(ctx), *ctx.extra_sections])
         specs = parts["tools"].specs()
         tools_tokens = sum(estimate_tokens(json.dumps(s.model_dump(), ensure_ascii=False)) for s in specs)
         sections = [

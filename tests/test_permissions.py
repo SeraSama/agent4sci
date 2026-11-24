@@ -116,3 +116,41 @@ async def test_the_guard_marks_itself_so_the_server_can_tell_it_from_a_tool_appr
                       interactions=InteractionBroker(handler=handler))
     await call(shell.shell, ctx, command="ls ~/Documents")
     assert seen[0]["guard"] == "shell" and seen[0]["category"] == "exec.shell"
+
+
+async def test_a_read_only_secondary_folder_can_be_read_but_not_written(workspace, tmp_path):
+    """副文件夹: the user names folders outside the project and picks the access level for each."""
+    from agent4sci.tools import fs
+
+    data = tmp_path / "raw-data"
+    data.mkdir()
+    (data / "scan.txt").write_text("values", encoding="utf-8")
+    out = tmp_path / "shared-output"
+    out.mkdir()
+
+    ctx = ToolContext(workspace=workspace, readonly_roots=[data], writable_roots=[out])
+    assert "values" in (await call(fs.read_file, ctx, path=str(data / "scan.txt"))).as_text()
+    with pytest.raises(ToolError, match="只给了读取权限"):
+        await call(fs.write_file, ctx, path=str(data / "scan.txt"), content="nope")
+    await call(fs.write_file, ctx, path=str(out / "result.md"), content="done")
+    assert (out / "result.md").read_text(encoding="utf-8") == "done"
+    with pytest.raises(ToolError):
+        await call(fs.read_file, ctx, path=str(tmp_path / "elsewhere.txt"))
+
+
+async def test_commands_may_reach_a_secondary_folder_without_asking(workspace, tmp_path):
+    """The guard asks when a command leaves the project — but a folder you attached is not "away"."""
+    data = tmp_path / "attached"
+    data.mkdir()
+    asked: list[str] = []
+
+    def handler(interaction):
+        asked.append(interaction.title)
+        return {"decision": "allow"}
+
+    ctx = ToolContext(workspace=workspace, writable_roots=[data], permission_mode="ask_risky",
+                      interactions=InteractionBroker(handler=handler))
+    await call(shell.shell, ctx, command=f"ls {data}")
+    assert asked == [], "an attached folder should not trip the leaving-the-project guard"
+    await call(shell.shell, ctx, command="ls ~/Documents")
+    assert len(asked) == 1, "somewhere genuinely outside still asks"

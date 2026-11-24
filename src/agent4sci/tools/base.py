@@ -43,6 +43,7 @@ class ToolContext:
 
     workspace: Path
     readonly_roots: list[Path] = field(default_factory=list)
+    writable_roots: list[Path] = field(default_factory=list)  # secondary folders granted write access
     emit: Emitter = field(default_factory=Emitter.null)
     interactions: "InteractionBroker | None" = None
     services: dict[str, Any] = field(default_factory=dict)
@@ -85,9 +86,18 @@ class ToolContext:
                 if rel.parts and rel.parts[0] in self.protected_write_dirs:
                     raise PathAccessError(f"不允许写入内部目录: {path}")
             return resolved
-        if not write and any(_is_within(resolved, r.resolve()) for r in self.readonly_roots):
+        if any(_is_within(resolved, r.resolve()) for r in self.writable_roots):
+            return resolved
+        if any(_is_within(resolved, r.resolve()) for r in self.readonly_roots):
+            if write:
+                raise PathAccessError(f"这个位置只给了读取权限，不能写入: {path}")
             return resolved
         raise PathAccessError(f"路径不在允许的工作区范围内: {path}")
+
+    @property
+    def allowed_roots(self) -> list[Path]:
+        """Everywhere the agent may reach: the workspace plus every secondary folder."""
+        return [self.workspace, *self.writable_roots, *self.readonly_roots]
 
     def display_path(self, path: Path) -> str:
         try:
