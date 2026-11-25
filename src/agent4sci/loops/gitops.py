@@ -7,15 +7,17 @@ from pathlib import Path
 from typing import Any
 
 from ..core.envfix import find_executable
+from ..core.textio import decode_text
 
 _IDENTITY = ["-c", "user.name=Agent4Sci", "-c", "user.email=agent4sci@localhost", "-c", "commit.gpgsign=false"]
 
 
 def _git(workspace: Path, *args: str, check: bool = False) -> subprocess.CompletedProcess[str]:
     git = find_executable("git") or "git"
-    # git writes UTF-8 (commit messages here are often Chinese); never decode with the Windows ANSI code page
-    return subprocess.run([git, *_IDENTITY, *args], cwd=workspace, capture_output=True, text=True, encoding="utf-8",
-                          errors="replace", check=check)
+    # git itself writes UTF-8 (commit messages here are often Chinese), but a hook or a program it shells out
+    # to on a Chinese Windows writes GBK, so decode rather than assume.
+    done = subprocess.run([git, *_IDENTITY, *args], cwd=workspace, capture_output=True, check=check)
+    return subprocess.CompletedProcess(done.args, done.returncode, decode_text(done.stdout), decode_text(done.stderr))
 
 
 def available(workspace: Path) -> bool:

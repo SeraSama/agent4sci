@@ -18,6 +18,7 @@ from pydantic import BaseModel, Field
 
 from ..core.envfix import find_executable, login_shell_path
 from ..core.paths import logs_dir
+from ..core.textio import read_text
 from ..core.secrets import get_secret_store
 from ..llm.types import ImageBlock, TextBlock
 from ..tools.base import Tool, ToolContext, ToolError, ToolResult
@@ -237,7 +238,7 @@ class ServerHandle:
             self._errlog.flush()
         if self.log_path is None or not self.log_path.exists():
             return ""
-        text = self.log_path.read_text("utf-8", errors="replace")
+        text = read_text(self.log_path)
         return text[text.rfind("\n--- start "):].split("\n", 2)[-1].strip()[-limit:]
 
     def _log_size(self) -> int:

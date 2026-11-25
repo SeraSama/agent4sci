@@ -109,11 +109,13 @@ async def edit_file(args: EditArgs, ctx: ToolContext):
     if not path.exists():
         raise ToolError(f"文件不存在: {args.path}")
     raw = path.read_bytes()
-    encoding = text_encoding(raw) or "utf-8"  # keep a BOM / UTF-16 file in its own encoding
+    # Keep the file in whatever it already is — BOM, UTF-16 or a GBK file off a Chinese Windows — instead
+    # of silently converting it to UTF-8 the first time an agent edits it.
+    encoding = text_encoding(raw) or "utf-8"
     try:
         text = raw.decode(encoding)
     except UnicodeDecodeError:
-        raise ToolError("文件不是 UTF-8 / UTF-16 文本，无法安全地逐字替换；请用 write_file 重写或用 shell 转码。") from None
+        raise ToolError("这个文件的编码认不出来，无法安全地逐字替换；请用 write_file 重写或用 shell 转码。") from None
     count = text.count(args.old_string)
     if not args.old_string or count == 0:
         raise ToolError("没有找到 old_string（需要与文件内容逐字一致，包括缩进）。先用 read_file 查看文件。")

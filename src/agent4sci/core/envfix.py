@@ -148,9 +148,16 @@ def tool_env(workspace: Path, passthrough: list[str] | tuple[str, ...] = (), ext
     return env
 
 
-# Windows PowerShell writes to pipes in the console code page (GBK on Chinese Windows); make its output — and how
-# it decodes native programs' output — UTF-8, which is what the tools decode.
+# Windows PowerShell writes to pipes in the console code page (GBK on Chinese Windows) and decodes native
+# programs' output the same way, so without this every Chinese character round-trips through the wrong table.
+# The agent's own toolchain (python with PYTHONUTF8, git, uv, node) writes UTF-8 whatever the code page is, so
+# UTF-8 is the setting that makes those correct; `chcp` additionally moves the console itself to UTF-8 for the
+# native programs that follow it. A legacy program that writes GBK regardless is still read as UTF-8 here —
+# nothing downstream can recover those bytes, because PowerShell decodes them before we see them.
 POWERSHELL_UTF8 = ("try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8 } catch {}; "
+                   # stdin we hand the command is UTF-8 too (shell.py encodes it)
+                   "try { [Console]::InputEncoding = [System.Text.Encoding]::UTF8 } catch {}; "
+                   "try { chcp 65001 > $null 2>&1 } catch {}; "
                    "$OutputEncoding = [System.Text.Encoding]::UTF8; "
                    # `>`, Out-File, Set-Content, Get-Content: UTF-8 instead of UTF-16 / the ANSI code page
                    "$PSDefaultParameterValues['*:Encoding'] = 'utf8'; ")

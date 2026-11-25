@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Anchor, Brain, BrainCircuit, ChevronDown, ChevronRight, Ghost, Globe, Layers, MessageSquare, MessagesSquare, Plus,
+import { Anchor, Brain, BrainCircuit, ChevronDown, ChevronRight, Copy, Download, Ghost, Globe, Layers, MessageSquare, MessagesSquare, MoreHorizontal, Plus, Quote,
   Pencil, Save, Search, Send, ShieldCheck, Sparkles, Square, Trash2, UserRound, FolderKanban, BookmarkPlus,
   Archive, ArchiveRestore, BookMarked, Clock, CornerDownRight, FlaskConical, ListOrdered, Puzzle, TriangleAlert } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
@@ -7,18 +7,19 @@ import { useTranslation } from 'react-i18next'
 import { navigate, useRoute } from '@/app/router'
 import { InteractionCard, TOOL_LABELS, ToolCallCard, type ToolCallView } from '@/components/agent'
 import { Avatar } from '@/components/Avatar'
+import { CopyButton } from '@/components/CopyButton'
 import { FileChip } from '@/components/FileChip'
 import { Markdown } from '@/components/Markdown'
 import { Marquee } from '@/components/Marquee'
 import { askForText, confirmAction } from '@/components/confirm'
-import { useContextMenu } from '@/components/ContextMenu'
+import { ContextMenu, useContextMenu } from '@/components/ContextMenu'
 import { Badge, Button, Dialog, Empty, Input, Select, Spinner, Tip } from '@/components/ui'
 import { del, errorMessage, get, patch, post, put } from '@/lib/api'
 import { useEvents } from '@/lib/events'
 import { useApp, useCurrentProject, useModels, useProjects } from '@/lib/store'
 import { useUi } from '@/lib/uistore'
 import type { Block, ChatMessage, Conversation, HarnessProfile, Interaction, MemoryMode } from '@/lib/types'
-import { cn, costLabel, formatCost, formatDuration, formatTime, formatTokens, toast } from '@/lib/utils'
+import { cn, copyText, costLabel, formatCost, formatDuration, formatTime, formatTokens, toast } from '@/lib/utils'
 
 export const MEMORY_MODES: { value: MemoryMode; label: string; icon: typeof Globe; hint: string }[] = [
   { value: 'global', label: '全局记忆', icon: Globe, hint: '读写全局、项目和本对话的记忆' },
@@ -380,7 +381,7 @@ function ChatView({ id }: { id: string }) {
   if (!data) return <div className="flex flex-1 items-center justify-center"><Spinner /></div>
   return (
     <div className="flex min-w-0 flex-1 flex-col">
-      <ChatHeader conv={{ ...data, status }} usage={usage} />
+      <ChatHeader conv={{ ...data, status }} usage={usage} messages={messages} />
       <div ref={scroller} className="min-h-0 flex-1 overflow-y-auto" onScroll={() => {
         const el = scroller.current
         if (el) following.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80
@@ -497,10 +498,12 @@ function MessageList({ messages, running, results, convId, memoryMode, agentAvat
           return (
             <div key={idx} className="group flex flex-row-reverse gap-3">
               <Avatar role="user" value={userAvatar} />
-              <div className="max-w-[85%] rounded-2xl rounded-tr-sm bg-primary/10 px-3.5 py-2 text-sm">
-                <Markdown text={text} />
+              <div className="flex max-w-[85%] flex-col items-end gap-1">
+                <div className="rounded-2xl rounded-tr-sm bg-primary/10 px-3.5 py-2 text-sm">
+                  <Markdown text={text} />
+                </div>
+                <MessageActions convId={convId} text={text} memoryMode={memoryMode} align="right" />
               </div>
-              <RememberButton convId={convId} text={text} memoryMode={memoryMode} />
             </div>
           )
         }
@@ -529,8 +532,8 @@ function MessageList({ messages, running, results, convId, memoryMode, agentAvat
                   })}
                 </div>
               )}
+              <MessageActions convId={convId} text={text} memoryMode={memoryMode} />
             </div>
-            {text && <RememberButton convId={convId} text={text} memoryMode={memoryMode} />}
           </div>
         )
       })}
@@ -538,27 +541,78 @@ function MessageList({ messages, running, results, convId, memoryMode, agentAvat
   )
 }
 
-function RememberButton({ convId, text, memoryMode }: { convId: string; text: string; memoryMode: MemoryMode }) {
+/** Put text into the composer of a conversation from anywhere on the page. */
+export function composeInto(convId: string, text: string): void {
+  window.dispatchEvent(new CustomEvent('a4s:compose', { detail: { convId, text } }))
+}
+
+/** The row under a message: copy it, quote it into the box, remember it. Appears on hover. */
+function MessageActions({ convId, text, memoryMode, align }: {
+  convId: string
+  text: string
+  memoryMode: MemoryMode
+  align?: 'right'
+}) {
   const { t } = useTranslation()
-  if (memoryMode === 'none' || !text.trim()) return <div className="w-7 shrink-0" />
+  if (!text.trim()) return null
+  const quote = () => {
+    const body = text.trim().split('\n').map((line) => `> ${line}`).join('\n')
+    composeInto(convId, `${body}\n\n`)
+  }
+  const remember = async () => {
+    try {
+      const item = await post<{ name: string; scope: string }>(`/conversations/${convId}/remember`, { text: text.slice(0, 4000) })
+      toast.success(t('已记住（{{scope}}）：{{name}}', { scope: item.scope, name: item.name }))
+    } catch (err) {
+      toast.error(errorMessage(err))
+    }
+  }
   return (
-    <Tip content={t('记住这条')}>
-      <button className="mt-1 h-6 w-6 shrink-0 rounded p-1 text-subtle opacity-0 transition group-hover:opacity-100 hover:bg-surface-2 hover:text-fg"
-        onClick={async () => {
-          try {
-            const item = await post<{ name: string; scope: string }>(`/conversations/${convId}/remember`, { text: text.slice(0, 4000) })
-            toast.success(t('已记住（{{scope}}）：{{name}}', { scope: item.scope, name: item.name }))
-          } catch (err) {
-            toast.error(errorMessage(err))
-          }
-        }}>
-        <BookmarkPlus className="h-3.5 w-3.5" />
-      </button>
-    </Tip>
+    <div className={cn('flex items-center gap-0.5 opacity-0 transition group-hover:opacity-100 focus-within:opacity-100',
+      align === 'right' && 'justify-end')}>
+      <CopyButton text={text} />
+      <Tip content={t('引用到输入框')}>
+        <button onClick={quote}
+          className="rounded px-1.5 py-1 text-subtle transition hover:bg-surface-2 hover:text-fg">
+          <Quote className="h-3.5 w-3.5" />
+        </button>
+      </Tip>
+      {memoryMode !== 'none' && (
+        <Tip content={t('记住这条')}>
+          <button onClick={() => void remember()}
+            className="rounded px-1.5 py-1 text-subtle transition hover:bg-surface-2 hover:text-fg">
+            <BookmarkPlus className="h-3.5 w-3.5" />
+          </button>
+        </Tip>
+      )}
+    </div>
   )
 }
 
-function ChatHeader({ conv, usage }: { conv: Conversation; usage: { context: number; window: number } | null }) {
+/** The whole conversation as Markdown — what "copy the conversation" and "export" both hand over.
+ *  `me` is translated by the caller so an exported file reads in the language the app is set to. */
+export function conversationMarkdown(title: string, messages: ChatMessage[], me = '我'): string {
+  const lines = [`# ${title}`, '']
+  for (const m of messages) {
+    const text = textOf(m.content).trim()
+    const calls = m.content.filter((b) => b.type === 'tool_call') as Extract<Block, { type: 'tool_call' }>[]
+    if (m.meta?.kind === 'notice') {
+      if (text) lines.push(`> ${text}`, '')
+      continue
+    }
+    if (!text && !calls.length) continue
+    lines.push(m.role === 'user' ? `## ${me}` : '## Agent', '')
+    if (text) lines.push(text, '')
+    if (calls.length) lines.push(`*（调用了工具：${calls.map((c) => c.name).join('、')}）*`, '')
+  }
+  return lines.join('\n')
+}
+
+function ChatHeader({ conv, usage, messages }: {
+  conv: Conversation
+  usage: { context: number; window: number } | null
+  messages: ChatMessage[]
+}) {
   const { t } = useTranslation()
   const qc = useQueryClient()
   const { data: models } = useModels()
@@ -566,6 +620,7 @@ function ChatHeader({ conv, usage }: { conv: Conversation; usage: { context: num
   const [title, setTitle] = useState(conv.title)
   const [editingTitle, setEditingTitle] = useState(false)
   const [memoryOps, setMemoryOps] = useState<any[] | null>(null)
+  const [menuAt, setMenuAt] = useState<{ x: number; y: number } | null>(null)
   const [proposing, setProposing] = useState(false)
   useEffect(() => setTitle(conv.title), [conv.title])
 
@@ -672,17 +727,37 @@ function ChatHeader({ conv, usage }: { conv: Conversation; usage: { context: num
           toast.success(t('已转为正式对话'))
         }}><Save className="h-3.5 w-3.5" />{t('转为正式对话')}</Button>
       )}
-      <Tip content={t('归档')}>
-        {conv.archived
-          ? <Button size="icon" variant="ghost" onClick={() => void update({ archived: false })}><ArchiveRestore className="h-3.5 w-3.5" /></Button>
-          : <Button size="icon" variant="ghost" onClick={() => update({ archived: true }).then(() => navigate('chat'))}><Archive className="h-3.5 w-3.5" /></Button>}
-      </Tip>
-      <Button size="icon" variant="ghost" className="text-danger" onClick={async () => {
-        if (!(await confirmAction({ title: t('删除这个对话？'), description: t('它的对话级记忆也会一起删除。'), danger: true }))) return
-        await del(`/conversations/${conv.id}`)
-        await qc.invalidateQueries({ queryKey: ['conversations'] })
-        navigate('chat')
-      }}><Trash2 className="h-3.5 w-3.5" /></Button>
+      {/* One menu rather than four icons: the header already wraps onto a second line at 1440px. */}
+      <Button size="icon" variant="ghost" onClick={(e) => {
+        const box = (e.currentTarget as HTMLElement).getBoundingClientRect()
+        setMenuAt({ x: box.right - 4, y: box.bottom + 4 })
+      }}><MoreHorizontal className="h-3.5 w-3.5" /></Button>
+      {menuAt && (
+        <ContextMenu at={menuAt} onClose={() => setMenuAt(null)} items={[
+          { label: t('复制整个对话'), icon: <Copy className="h-3.5 w-3.5" />, onSelect: async () => {
+            const ok = await copyText(conversationMarkdown(conv.title, messages, t('我')))
+            if (ok) toast.success(t('对话已复制'))
+            else toast.error(t('复制失败'))
+          } },
+          ...(window.a4s ? [{ label: t('导出为 Markdown 文件'), icon: <Download className="h-3.5 w-3.5" />,
+            onSelect: async () => {
+              const name = `${conv.title.replace(/[\\/:*?"<>|]/g, '-').slice(0, 60) || 'conversation'}.md`
+              const saved = await window.a4s!.saveText(name, conversationMarkdown(conv.title, messages, t('我')))
+              if (saved) toast.success(t('已导出到 {{p}}', { p: saved }))
+            } }] : []),
+          conv.archived
+            ? { label: t('取消归档'), icon: <ArchiveRestore className="h-3.5 w-3.5" />, separatorBefore: true,
+                onSelect: () => void update({ archived: false }) }
+            : { label: t('归档'), icon: <Archive className="h-3.5 w-3.5" />, separatorBefore: true,
+                onSelect: () => void update({ archived: true }).then(() => navigate('chat')) },
+          { label: t('删除对话'), icon: <Trash2 className="h-3.5 w-3.5" />, danger: true, onSelect: async () => {
+            if (!(await confirmAction({ title: t('删除这个对话？'), description: t('它的对话级记忆也会一起删除。'), danger: true }))) return
+            await del(`/conversations/${conv.id}`)
+            await qc.invalidateQueries({ queryKey: ['conversations'] })
+            navigate('chat')
+          } },
+        ]} />
+      )}
       {memoryOps && <MemoryOpsDialog convId={conv.id} ops={memoryOps} onClose={() => setMemoryOps(null)} />}
     </div>
   )
@@ -759,6 +834,7 @@ function Composer({ conv, running }: { conv: Conversation; running: boolean }) {
   const [dragging, setDragging] = useState(false)
   const [sending, setSending] = useState(false)
   const composing = useRef(false)
+  const box = useRef<HTMLTextAreaElement>(null)
   const { data: permissionModes } = useQuery({
     queryKey: ['permission-modes'],
     queryFn: () => get<{ id: string; label: string; hint: string }[]>('/permission-modes'),
@@ -768,6 +844,17 @@ function Composer({ conv, running }: { conv: Conversation; running: boolean }) {
   useEffect(() => {
     setText(readDraft(`a4s.draft.${id}`))
     setFiles(readDraftFiles(`a4s.draft.${id}`))
+  }, [id])
+  // "Quote" from a message lands here rather than replacing what you were writing.
+  useEffect(() => {
+    const onCompose = (e: Event) => {
+      const detail = (e as CustomEvent<{ convId: string; text: string }>).detail
+      if (detail?.convId !== id || !detail.text) return
+      setText((current) => (current ? `${current.replace(/\s+$/, '')}\n\n${detail.text}` : detail.text))
+      box.current?.focus()
+    }
+    window.addEventListener('a4s:compose', onCompose)
+    return () => window.removeEventListener('a4s:compose', onCompose)
   }, [id])
   useEffect(() => {
     try {
@@ -837,7 +924,7 @@ function Composer({ conv, running }: { conv: Conversation; running: boolean }) {
           </div>
         )}
         <div className="flex items-end gap-2">
-          <textarea value={text} onChange={(e) => setText(e.target.value)} rows={Math.min(8, Math.max(2, text.split('\n').length))}
+          <textarea ref={box} value={text} onChange={(e) => setText(e.target.value)} rows={Math.min(8, Math.max(2, text.split('\n').length))}
             onCompositionStart={() => { composing.current = true }}
             onCompositionEnd={() => { composing.current = false }}
             onPaste={(e) => {

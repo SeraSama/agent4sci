@@ -17,6 +17,7 @@ from pydantic import BaseModel, Field
 from .db import Database
 from .envfix import IS_WINDOWS, find_executable, venv_python
 from .paths import default_projects_dir
+from .textio import decode_text
 
 WORKSPACE_DIRS = ["plan", "lit", "data", "code", "code/eval", "results", "figures", "paper", "notes", "review",
                   "skills/installed", "skills/learned", "loops"]
@@ -241,7 +242,7 @@ async def create_venv(workspace: Path, packages: list[str] | None = None,
         proc = await asyncio.create_subprocess_exec(*argv, cwd=str(workspace), stdout=asyncio.subprocess.PIPE,
                                                     stderr=asyncio.subprocess.STDOUT)
         out, _ = await proc.communicate()
-        log.append(out.decode(errors="replace")[-2000:])
+        log.append(decode_text(out)[-2000:])
         if proc.returncode != 0:
             return {"ok": False, "error": log[-1]}
     return {"ok": venv_python(workspace) is not None, "python": python, "packages": pkgs}

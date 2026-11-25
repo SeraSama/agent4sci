@@ -1,5 +1,6 @@
+import fs from 'node:fs'
 import { join } from 'node:path'
-import { app, BrowserWindow, dialog, ipcMain, Menu, nativeTheme, shell } from 'electron'
+import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeTheme, shell } from 'electron'
 import { backendInfo, onBackendExit, startBackend, stopBackend } from './backend'
 
 // Chromium's profile files get their own folder. On macOS (case-insensitive by default) the default userData
@@ -161,6 +162,23 @@ ipcMain.handle('a4s:pick-file', async (_event, kind: string) => {
   })
   return result.canceled ? null : result.filePaths[0]
 })
+// Electron's own clipboard, so copying works the same in a packaged app as in the dev browser.
+ipcMain.handle('a4s:copy', (_event, text: string) => {
+  clipboard.writeText(String(text ?? ''))
+  return true
+})
+
+ipcMain.handle('a4s:save-text', async (_event, name: string, text: string) => {
+  const win = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0]
+  const { canceled, filePath } = await dialog.showSaveDialog(win, {
+    defaultPath: join(app.getPath('downloads'), name),
+    filters: [{ name: 'Markdown', extensions: ['md'] }, { name: '文本', extensions: ['txt'] }],
+  })
+  if (canceled || !filePath) return null
+  await fs.promises.writeFile(filePath, String(text ?? ''), 'utf-8')
+  return filePath
+})
+
 ipcMain.handle('a4s:open-path', async (_event, path: string) => shell.openPath(path))
 ipcMain.handle('a4s:open-external', async (_event, url: string) => {
   if (allowedExternal(url)) await shell.openExternal(url)

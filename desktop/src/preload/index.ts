@@ -14,6 +14,9 @@ contextBridge.exposeInMainWorld('a4s', {
       return null
     }
   },
+  copyText: (text: string): Promise<boolean> => ipcRenderer.invoke('a4s:copy', text),
+  saveText: (name: string, text: string): Promise<string | null> =>
+    ipcRenderer.invoke('a4s:save-text', name, text),
   openPath: (path: string): Promise<string> => ipcRenderer.invoke('a4s:open-path', path),
   openExternal: (url: string): Promise<void> => ipcRenderer.invoke('a4s:open-external', url),
   setNativeTheme: (mode: 'light' | 'dark' | 'system'): void => ipcRenderer.send('a4s:theme', mode),

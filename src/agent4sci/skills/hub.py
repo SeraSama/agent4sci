@@ -21,6 +21,7 @@ from pydantic import BaseModel, Field
 
 from ..core.envfix import find_executable
 from ..core.paths import cache_dir
+from ..core.textio import decode_text
 from ..tools.http import HttpClient, HttpError
 from .lock import LockEntry, LockFile, dir_digest
 from .scanner import ScanReport, scan_skill
@@ -363,7 +364,7 @@ class SkillHub:
         proc = await asyncio.create_subprocess_exec(*args, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
         _, err = await proc.communicate()
         if proc.returncode != 0:
-            raise RuntimeError(f"git clone 失败: {err.decode(errors='replace')[:300]}")
+            raise RuntimeError(f"git clone 失败: {decode_text(err)[:300]}")
         rev = await asyncio.create_subprocess_exec(git, "-C", str(dest / "repo"), "rev-parse", "HEAD",
                                                    stdout=asyncio.subprocess.PIPE)
         out, _ = await rev.communicate()

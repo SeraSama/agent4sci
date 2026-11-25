@@ -68,7 +68,9 @@ async function launch(): Promise<BackendInfo> {
   log.write(`\n==== ${new Date().toISOString()} starting ${cmd} ${args.join(' ')}\n`)
   const proc = spawn(cmd, args, {
     cwd,
-    env: { ...env, A4S_TOKEN: token, PYTHONUNBUFFERED: '1' },
+    // PYTHONUTF8/PYTHONIOENCODING: without them the backend's own stdout uses the console code page on a
+    // Chinese Windows (GBK), and the log and the startup error we show would be mojibake.
+    env: { ...env, A4S_TOKEN: token, PYTHONUNBUFFERED: '1', PYTHONUTF8: '1', PYTHONIOENCODING: 'utf-8' },
     stdio: ['pipe', 'pipe', 'pipe'],
     windowsHide: true,
   })

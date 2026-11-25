@@ -84,3 +84,31 @@ export const toast = {
   success: (text: string) => useToasts.getState().push('success', text),
   error: (text: string) => useToasts.getState().push('error', text),
 }
+
+/** Copy text to the clipboard: Electron's own clipboard first, then the browser's, then the old trick. */
+export async function copyText(text: string): Promise<boolean> {
+  if (!text) return false
+  try {
+    if (window.a4s?.copyText) return await window.a4s.copyText(text)
+  } catch {
+    // fall through to the browser
+  }
+  try {
+    await navigator.clipboard.writeText(text)
+    return true
+  } catch {
+    // clipboard API unavailable (no secure context, or the window lost focus)
+  }
+  try {
+    const area = document.createElement('textarea')
+    area.value = text
+    area.style.cssText = 'position:fixed;opacity:0'
+    document.body.appendChild(area)
+    area.select()
+    const ok = document.execCommand('copy')
+    area.remove()
+    return ok
+  } catch {
+    return false
+  }
+}

@@ -16,6 +16,7 @@ from pydantic import BaseModel, Field
 
 from ..agent.permissions import guards_shell
 from ..core.envfix import IS_WINDOWS, shell_command, tool_env
+from ..core.textio import decode_text, read_text
 from .base import ToolContext, ToolError, tool
 
 DANGEROUS_PATTERNS: list[tuple[str, str]] = [
@@ -159,7 +160,8 @@ async def run_command(
 
 
 def _text(data: bytes) -> str:
-    return data.decode("utf-8", "replace").lstrip("\ufeff")
+    """Command output is not always UTF-8: on a Chinese Windows a native program writes GBK."""
+    return decode_text(data).lstrip("\ufeff")
 
 
 async def _guard(command: str, ctx: ToolContext) -> None:
@@ -265,7 +267,7 @@ class JobManager:
 
     def tail(self, job_id: str, lines: int = 100) -> str:
         job = self.get(job_id)
-        text = job.log_path.read_text("utf-8", errors="replace") if job.log_path.exists() else ""
+        text = read_text(job.log_path) if job.log_path.exists() else ""
         return "\n".join(text.splitlines()[-lines:])
 
     def kill(self, job_id: str) -> None:

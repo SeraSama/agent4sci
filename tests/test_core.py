@@ -186,3 +186,47 @@ def test_a_foreign_archive_is_refused(tmp_path):
         zf.writestr("hello.txt", "hi")
     with pytest.raises(ValueError, match="备份文件"):
         backup_mod.inspect_backup(bogus)
+
+
+# ---- 文本编码 ------------------------------------------------------------------------------------
+
+
+def test_text_from_a_chinese_windows_is_read_as_gbk_not_replacement_characters(tmp_path):
+    """Notepad's "ANSI", Excel's CSV export and legacy programs write GBK, not UTF-8."""
+    from agent4sci.core.textio import decode_text, looks_binary, read_text, text_encoding
+
+    chinese = "被试 3 的采样率是 250Hz，数据在 data/raw 下"
+    assert text_encoding(chinese.encode("utf-8")) is None  # plain UTF-8 stays plain UTF-8
+    assert decode_text(chinese.encode("gb18030")) == chinese
+    assert decode_text(chinese.encode("utf-8")) == chinese
+    assert "�" not in decode_text(chinese.encode("gb18030"))
+
+    path = tmp_path / "notepad-ansi.txt"
+    path.write_bytes(chinese.encode("gb18030"))
+    assert read_text(path) == chinese
+
+    assert text_encoding("x".encode("utf-16")) == "utf-16"
+    assert text_encoding(b"\xef\xbb\xbf" + chinese.encode("utf-8")) == "utf-8-sig"
+    assert not looks_binary(chinese.encode("gb18030"))
+
+
+def test_a_utf8_file_cut_in_half_is_still_read_as_utf8(tmp_path):
+    """The viewer reads the first 2 MB; a character split at the cut must not flip the whole file to GBK."""
+    from agent4sci.core.textio import decode_text, text_encoding
+
+    raw = ("中文内容 " * 200).encode("utf-8")
+    assert text_encoding(raw[:-1]) is None
+    assert decode_text(raw[:-1]).startswith("中文内容")
+
+
+async def test_a_command_writing_gbk_is_readable(tmp_path):
+    """What a native Windows program does; reproduced here with python -c so it runs on any platform."""
+    import sys
+
+    from agent4sci.tools import shell
+    from agent4sci.tools.base import ToolContext
+
+    ctx = ToolContext(workspace=tmp_path, permission_mode="allow_all")
+    code = "import sys; sys.stdout.buffer.write('实验完成：3 个被试'.encode('gb18030'))"
+    result = await shell.shell.run(shell.ShellArgs(command=f'{sys.executable} -c "{code}"'), ctx)
+    assert "实验完成：3 个被试" in result.as_text()

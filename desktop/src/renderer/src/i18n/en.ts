@@ -1331,6 +1331,18 @@ const en: Record<string, string> = {
   "显示已归档的对话": "Show archived chats",
   "取消归档": "Unarchive",
   "{{id}}（已删除，按默认运行）": "{{id}} (deleted — running on the default)",
+  "复制": "Copy",
+  "已复制": "Copied",
+  "复制代码": "Copy code",
+  "复制失败": "Could not copy",
+  "引用到输入框": "Quote in the box",
+  "复制整个对话（Markdown）": "Copy the whole chat as Markdown",
+  "对话已复制": "Chat copied",
+  "导出为 Markdown 文件": "Export as a Markdown file",
+  "已导出到 {{p}}": "Exported to {{p}}",
+  "我": "Me",
+  "复制整个对话": "Copy the whole chat",
+  "删除对话": "Delete chat",
 }
 
 export default en

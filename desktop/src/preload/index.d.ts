@@ -4,6 +4,8 @@ export interface A4SBridge {
   pickFolder: () => Promise<string | null>
   pickFile: (kind: 'media') => Promise<string | null>
   pathForFile: (file: File) => string | null
+  copyText: (text: string) => Promise<boolean>
+  saveText: (name: string, text: string) => Promise<string | null>
   openPath: (path: string) => Promise<string>
   openExternal: (url: string) => Promise<void>
   setNativeTheme: (mode: 'light' | 'dark' | 'system') => void
