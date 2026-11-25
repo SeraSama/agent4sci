@@ -52,6 +52,7 @@ def tool_groups() -> dict[str, list[Tool]]:
     from ..tools.memory_tool import memory_tool
     from ..tools.design import DESIGN_TOOLS
     from ..tools.neuro_data import NEURO_TOOLS
+    from ..tools.planning import PLAN_TOOLS
     from ..tools.provenance import PROVENANCE_TOOLS
     from ..tools.python_exec import PYTHON_TOOLS
     from ..tools.shell import SHELL_TOOLS
@@ -70,6 +71,7 @@ def tool_groups() -> dict[str, list[Tool]]:
         "memory": [memory_tool()],
         "skills": list(SKILL_TOOLS),
         "human": list(HUMAN_TOOLS),
+        "plan": list(PLAN_TOOLS),
         "agent": list(AGENT_TOOLS),
         "design": list(DESIGN_TOOLS),
     }
@@ -78,7 +80,7 @@ def tool_groups() -> dict[str, list[Tool]]:
 GROUP_LABELS = {
     "fs": "文件读写", "shell": "命令行与后台任务", "python": "Python 内核", "web": "网页抓取/搜索",
     "literature": "文献与引用", "research": "发现账本与结果溯源", "neuro": "神经科学数据", "memory": "记忆",
-    "skills": "技能", "human": "询问研究者", "agent": "子代理", "mcp": "MCP 工具",
+    "skills": "技能", "human": "询问研究者", "agent": "子代理", "mcp": "MCP 工具", "plan": "任务清单",
     "design": "设计 Harness 与 Loop",
 }
 ALL_GROUPS = list(GROUP_LABELS)
@@ -132,27 +134,27 @@ def builtin_harnesses() -> list[HarnessProfile]:
                        memory_mode="none", allow_subagents=False, builtin=True),
         HarnessProfile(id="librarian", name="文献专员", role="librarian", role_prompt=_role_prompt("librarian"),
                        description="系统检索、筛选、阅读文献并写综述",
-                       tool_groups=["fs", "web", "literature", "research", "skills", "memory", "agent", "human"],
+                       tool_groups=["fs", "web", "literature", "research", "skills", "memory", "agent", "human", "plan"],
                        builtin=True),
         HarnessProfile(id="analyst", name="数据分析师", role="analyst", role_prompt=_role_prompt("analyst"),
                        description="数据清洗、统计分析、作图，结果写入 results/",
-                       tool_groups=["fs", "shell", "python", "research", "skills", "memory", "neuro", "human"],
+                       tool_groups=["fs", "shell", "python", "research", "skills", "memory", "neuro", "human", "plan"],
                        builtin=True),
         HarnessProfile(id="experimenter", name="实验员", role="experimenter", role_prompt=_role_prompt("experimenter"),
                        description="实现并运行计算实验（后台任务、固定种子、记录结果）",
-                       tool_groups=["fs", "shell", "python", "research", "skills", "memory", "web", "human"],
+                       tool_groups=["fs", "shell", "python", "research", "skills", "memory", "web", "human", "plan"],
                        builtin=True),
         HarnessProfile(id="writer", name="写作者", role="writer", role_prompt=_role_prompt("writer"),
                        description="基于发现账本与已核验文献撰写论文/报告",
-                       tool_groups=["fs", "literature", "research", "skills", "memory"], builtin=True),
+                       tool_groups=["fs", "literature", "research", "skills", "memory", "plan"], builtin=True),
         HarnessProfile(id="orchestrator", name="主理人", role="orchestrator",
                        role_prompt=_role_prompt("orchestrator"),
                        description="扩展这个软件：为你的领域新建 Harness、技能、Loop 与领域包，写好直接保存",
-                       tool_groups=["design", "fs", "literature", "skills", "memory", "human"],
+                       tool_groups=["design", "fs", "literature", "skills", "memory", "human", "plan"],
                        memory_mode="global", max_turns=40, permission_mode="ask_risky", builtin=True),
         HarnessProfile(id="reviewer", name="评审", role="reviewer", role_prompt=_role_prompt("reviewer"),
                        description="严格的同行评审：结论与证据、统计、引用",
-                       tool_groups=["fs", "literature", "research", "skills"], memory_mode="none", builtin=True),
+                       tool_groups=["fs", "literature", "research", "skills", "plan"], memory_mode="none", builtin=True),
     ]
     return items
 

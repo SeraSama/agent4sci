@@ -1343,6 +1343,16 @@ const en: Record<string, string> = {
   "我": "Me",
   "复制整个对话": "Copy the whole chat",
   "删除对话": "Delete chat",
+  "任务清单": "Task list",
+  "任务清单已全部完成": "Every task is done",
+  "从这段对话提炼技能": "Distil a skill from this chat",
+  "从这段对话提炼技能？": "Distil a skill from this chat?",
+  "开始提炼": "Distil",
+  "正在提炼，可能要一会儿…": "Working on it — this takes a moment…",
+  "这段对话里没有提炼出值得复用的做法。": "Nothing here was worth keeping as a reusable skill.",
+  "会另外跑一次模型，读这个对话的过程记录，提炼出可复用的做法写进项目的 skills/learned。提炼出来的技能要你在「技能 → 待批准」里批准之后才会对 Agent 生效。": "This runs the model once more, over this chat's trace, and writes what is worth reusing into the project's skills/learned. A distilled skill does nothing until you approve it under Skills → Pending.",
+  "提炼出 {{n}} 个技能，去「技能 → 待批准」里审批：{{names}}": "{{n}} skill(s) distilled — approve them under Skills → Pending: {{names}}",
+  "提出的 {{n}} 个技能没通过校验或安全扫描，没有保存。": "The {{n}} proposed skill(s) failed validation or the safety scan and were not kept.",
 }
 
 export default en

@@ -600,6 +600,32 @@ def create_app(state: ServerState) -> FastAPI:
                                     transcript_text(convs.transcript(conv_id)), workspace=ctx.workspace)
         return [o.model_dump() for o in ops]
 
+    @api.post("/conversations/{conv_id}/distill")
+    async def distill_conversation(conv_id: str) -> dict[str, Any]:
+        """Turn what worked in this conversation into reusable skills, pending your approval.
+
+        Same machinery the Loop engine uses; the digest comes from the conversation's own trace events.
+        """
+        from ..skills.distill import propose_skills, trace_digest, write_learned_skill
+
+        conv = convs.get(conv_id)
+        if conv.project_id is None:
+            raise ValueError("只有项目里的对话能沉淀技能：学到的技能保存在项目的 skills/learned 目录下。")
+        ctx = convs.harness_context(conv)
+        digest = trace_digest(services.db.list_events(f"conv:{conv_id}"))
+        if not digest.strip():
+            return {"skills": [], "reason": "这个对话还没有可提炼的过程记录。"}
+        profile = state.builder.harnesses.get(conv.harness_id)
+        model = state.builder.model_for(profile, ctx)
+        # Deliberately no emitter on the conversation's topic: the distiller is a separate agent, and its
+        # messages would otherwise appear in this chat and land in the trace the next distillation reads.
+        proposals = await propose_skills(
+            state.builder.provider_for(model), digest=digest,
+            existing=state.builder.skills_registry(ctx).list(), workspace=ctx.workspace,
+        )
+        learned = ctx.workspace / "skills" / "learned"
+        return {"skills": [write_learned_skill(learned, p, run_id=conv_id) for p in proposals]}
+
     @api.post("/conversations/{conv_id}/memory/apply")
     async def apply_memory(conv_id: str, body: dict[str, Any] = Body(...)) -> list[dict[str, Any]]:
         from ..memory.consolidate import MemoryOp, apply_ops

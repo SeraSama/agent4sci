@@ -448,3 +448,30 @@ def test_a_project_has_exactly_one_main_conversation(client, tmp_path):
     listing = client.get(f"/api/conversations?project_id={project['id']}", headers=H).json()
     assert [c["id"] for c in listing if c["is_main"]] == [main["id"]]
     assert client.post("/api/projects/p_missing/main-conversation", headers=H).status_code == 404
+
+
+def test_a_conversation_can_be_distilled_into_pending_skills(client, tmp_path):
+    project = make_project(client, tmp_path)
+    conv = client.post("/api/conversations", headers=H, json={"project_id": project["id"]}).json()
+    client.post(f"/api/conversations/{conv['id']}/messages", headers=H, json={"text": "整理一下文献"})
+    wait_for(lambda: client.get(f"/api/conversations/{conv['id']}", headers=H).json()["status"] == "idle")
+
+    out = client.post(f"/api/conversations/{conv['id']}/distill", headers=H).json()
+    assert isinstance(out["skills"], list)
+    # whatever the model proposed, nothing becomes visible to agents without review
+    assert all(s["status"] in ("pending", "invalid", "rejected") for s in out["skills"])
+
+    loose = client.post("/api/conversations", headers=H, json={}).json()  # no project → nowhere to put them
+    refused = client.post(f"/api/conversations/{loose['id']}/distill", headers=H)
+    assert refused.status_code == 400 and "skills/learned" in refused.json()["detail"]
+
+
+def test_the_task_list_rides_along_with_the_conversation(client, tmp_path):
+    project = make_project(client, tmp_path)
+    conv = client.post("/api/conversations", headers=H, json={"project_id": project["id"]}).json()
+    assert conv["todos"] == []
+    manager = client.app.state.a4s.conversations
+    manager.get(conv["id"])  # exists
+    store = manager._build_agent(manager.get(conv["id"])).ctx.services["todos"]
+    store.write([{"text": "读文献", "status": "doing"}])
+    assert client.get(f"/api/conversations/{conv['id']}", headers=H).json()["todos"][0]["text"] == "读文献"

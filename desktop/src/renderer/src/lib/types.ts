@@ -102,6 +102,11 @@ export interface ChatMessage {
   created?: number
 }
 
+export interface TodoItem {
+  text: string
+  status: 'pending' | 'doing' | 'done'
+}
+
 export interface Conversation {
   id: string
   title: string
@@ -121,6 +126,7 @@ export interface Conversation {
   last_turn_seconds?: number
   tokens: Record<string, number>
   status: 'idle' | 'running'
+  todos?: TodoItem[]
   is_main?: boolean
   spawned_by?: string | null
   pending?: number  // approvals/questions waiting for the user in this conversation

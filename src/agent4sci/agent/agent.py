@@ -461,7 +461,8 @@ class Agent:
         request = [*self.messages, user_text(SUMMARY_PROMPT)]
         response = await self._call_llm(0, messages=request, purpose="compaction")
         summary = response.message.text().strip() or "(摘要为空)"
-        message = summary_message(summary, self.activated_skills)
+        store = self.ctx.services.get("todos")
+        message = summary_message(summary, self.activated_skills, store.read() if store is not None else None)
         self.messages = []
         self._history_tokens = 0
         self._append(message)

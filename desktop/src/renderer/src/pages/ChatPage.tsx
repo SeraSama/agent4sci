@@ -1,7 +1,7 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Anchor, Brain, BrainCircuit, ChevronDown, ChevronRight, Copy, Download, Ghost, Globe, Layers, MessageSquare, MessagesSquare, MoreHorizontal, Plus, Quote,
   Pencil, Save, Search, Send, ShieldCheck, Sparkles, Square, Trash2, UserRound, FolderKanban, BookmarkPlus,
-  Archive, ArchiveRestore, BookMarked, Clock, CornerDownRight, FlaskConical, ListOrdered, Puzzle, TriangleAlert } from 'lucide-react'
+  Archive, ArchiveRestore, BookMarked, Clock, ListChecks, CornerDownRight, FlaskConical, ListOrdered, Puzzle, TriangleAlert } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { navigate, useRoute } from '@/app/router'
@@ -18,7 +18,7 @@ import { del, errorMessage, get, patch, post, put } from '@/lib/api'
 import { useEvents } from '@/lib/events'
 import { useApp, useCurrentProject, useModels, useProjects } from '@/lib/store'
 import { useUi } from '@/lib/uistore'
-import type { Block, ChatMessage, Conversation, HarnessProfile, Interaction, MemoryMode } from '@/lib/types'
+import type { Block, ChatMessage, Conversation, HarnessProfile, Interaction, MemoryMode, TodoItem } from '@/lib/types'
 import { cn, copyText, costLabel, formatCost, formatDuration, formatTime, formatTokens, toast } from '@/lib/utils'
 
 export const MEMORY_MODES: { value: MemoryMode; label: string; icon: typeof Globe; hint: string }[] = [
@@ -282,6 +282,7 @@ function ChatView({ id }: { id: string }) {
   const { data: harnesses } = useQuery({ queryKey: ['harnesses'], queryFn: () => get<HarnessProfile[]>('/harnesses') })
   const agentAvatar = harnesses?.find((h) => h.id === data?.harness_id)?.avatar
   const [messages, setMessages] = useState<ChatMessage[]>([])
+  const [todos, setTodos] = useState<TodoItem[]>([])
   const [live, setLive] = useState<Live>({ text: '', reasoning: '' })
   const [running, setRunning] = useState<Record<string, boolean>>({})
   const [results, setResults] = useState<Record<string, { preview: string; is_error: boolean; duration: number }>>({})
@@ -299,6 +300,7 @@ function ChatView({ id }: { id: string }) {
   useEffect(() => {
     if (!data) return
     setMessages(data.messages)
+    setTodos(data.todos ?? [])
     setPending(data.pending)
     setStatus(data.status)
   }, [data])
@@ -314,6 +316,9 @@ function ChatView({ id }: { id: string }) {
         break
       case 'agent.done':
         if (!top) setActivity((a) => ({ subs: Math.max(0, a.subs - 1), label: t('子代理结束（{{status}}，{{n}} 轮）', { status: e.data.status, n: e.data.turns }) }))
+        break
+      case 'todos.changed':
+        if (top) setTodos(e.data.items ?? [])
         break
       case 'llm.stalled':
         setNotes((n) => [...n, t('连接 {{n}} 秒没有任何响应，正在重试', { n: Math.round(e.data.quiet_s) })])
@@ -382,6 +387,7 @@ function ChatView({ id }: { id: string }) {
   return (
     <div className="flex min-w-0 flex-1 flex-col">
       <ChatHeader conv={{ ...data, status }} usage={usage} messages={messages} />
+      <TodoStrip todos={todos} />
       <div ref={scroller} className="min-h-0 flex-1 overflow-y-auto" onScroll={() => {
         const el = scroller.current
         if (el) following.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80
@@ -424,6 +430,39 @@ function ChatView({ id }: { id: string }) {
         </div>
       </div>
       <Composer conv={data} running={status === 'running'} />
+    </div>
+  )
+}
+
+/** The agent's own task list for the job in hand. Shows what it plans to do before it does it. */
+function TodoStrip({ todos }: { todos: TodoItem[] }) {
+  const { t } = useTranslation()
+  const [open, setOpen] = useState(false)
+  if (!todos.length) return null
+  const done = todos.filter((x) => x.status === 'done').length
+  const current = todos.find((x) => x.status === 'doing') ?? todos.find((x) => x.status !== 'done')
+  return (
+    <div className="shrink-0 border-b border-border bg-surface/50 px-5 py-1.5">
+      <button onClick={() => setOpen(!open)} className="flex w-full items-center gap-2 text-left text-xs text-muted">
+        {open ? <ChevronDown className="h-3 w-3 shrink-0" /> : <ChevronRight className="h-3 w-3 shrink-0" />}
+        <ListChecks className="h-3.5 w-3.5 shrink-0 text-primary" />
+        <span className="min-w-0 flex-1 truncate">
+          {done === todos.length ? t('任务清单已全部完成') : current?.text}
+        </span>
+        <span className="shrink-0 tabular-nums text-subtle">{done}/{todos.length}</span>
+      </button>
+      {open && (
+        <ul className="mt-1 mb-1 flex flex-col gap-0.5 pl-7">
+          {todos.map((item, i) => (
+            <li key={i} className={cn('flex items-start gap-2 text-xs',
+              item.status === 'done' ? 'text-subtle line-through'
+                : item.status === 'doing' ? 'text-fg' : 'text-muted')}>
+              <span className="shrink-0 pt-px">{item.status === 'done' ? '✓' : item.status === 'doing' ? '▸' : '·'}</span>
+              <span className="min-w-0">{item.text}</span>
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   )
 }
@@ -621,6 +660,32 @@ function ChatHeader({ conv, usage, messages }: {
   const [editingTitle, setEditingTitle] = useState(false)
   const [memoryOps, setMemoryOps] = useState<any[] | null>(null)
   const [menuAt, setMenuAt] = useState<{ x: number; y: number } | null>(null)
+  const [distilling, setDistilling] = useState(false)
+
+  // Turning what worked here into a reusable skill. It costs another model run, so say so and show progress.
+  const distill = async () => {
+    if (!(await confirmAction({
+      title: t('从这段对话提炼技能？'),
+      description: t('会另外跑一次模型，读这个对话的过程记录，提炼出可复用的做法写进项目的 skills/learned。提炼出来的技能要你在「技能 → 待批准」里批准之后才会对 Agent 生效。'),
+      confirmLabel: t('开始提炼'),
+    }))) return
+    setDistilling(true)
+    toast.info(t('正在提炼，可能要一会儿…'))
+    try {
+      const out = await post<{ skills: { name: string; status: string }[]; reason?: string }>(
+        `/conversations/${conv.id}/distill`, {})
+      const pending = out.skills.filter((s) => s.status === 'pending')
+      if (pending.length) toast.success(t('提炼出 {{n}} 个技能，去「技能 → 待批准」里审批：{{names}}',
+        { n: pending.length, names: pending.map((s) => s.name).join('、') }))
+      else if (out.skills.length) toast.error(t('提出的 {{n}} 个技能没通过校验或安全扫描，没有保存。',
+        { n: out.skills.length }))
+      else toast.info(out.reason || t('这段对话里没有提炼出值得复用的做法。'))
+    } catch (err) {
+      toast.error(errorMessage(err))
+    } finally {
+      setDistilling(false)
+    }
+  }
   const [proposing, setProposing] = useState(false)
   useEffect(() => setTitle(conv.title), [conv.title])
 
@@ -745,6 +810,8 @@ function ChatHeader({ conv, usage, messages }: {
               const saved = await window.a4s!.saveText(name, conversationMarkdown(conv.title, messages, t('我')))
               if (saved) toast.success(t('已导出到 {{p}}', { p: saved }))
             } }] : []),
+          { label: t('从这段对话提炼技能'), icon: <Sparkles className="h-3.5 w-3.5" />,
+            disabled: !conv.project_id || distilling, onSelect: () => void distill() },
           conv.archived
             ? { label: t('取消归档'), icon: <ArchiveRestore className="h-3.5 w-3.5" />, separatorBefore: true,
                 onSelect: () => void update({ archived: false }) }

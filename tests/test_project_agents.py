@@ -123,3 +123,55 @@ async def test_it_refuses_to_dispatch_without_limit(tmp_path, monkeypatch):
         manager.save(conv)
     with pytest.raises(ToolError, match="已经有 24 个"):
         await desk.start("再来一个", "做点什么", None, False, 60)
+
+
+# ---- 任务清单 ------------------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_the_task_list_survives_the_agent_being_rebuilt(tmp_path, monkeypatch):
+    """The plan lives on the conversation, not on the Agent, so a settings change does not wipe it."""
+    def brain(system, messages, tools):
+        if not any(m.tool_results() for m in messages):
+            return FakeTurn(tool_calls=[("update_todos", {"items": [
+                {"text": "读 12 篇文献", "status": "done"},
+                {"text": "写综述", "status": "doing"},
+                {"text": "核对引用", "status": "pending"}]})])
+        return FakeTurn(text="清单记好了。")
+
+    _, manager, project = _env(tmp_path, monkeypatch, brain)
+    conv = manager.create(project_id=project.id, title="长活")
+    await manager.send(conv.id, "安排一下")
+    await manager.tasks[conv.id]
+
+    todos = manager.get(conv.id).todos
+    assert [t["status"] for t in todos] == ["done", "doing", "pending"]
+    manager.update(conv.id, permission_mode="allow_all")  # drops the cached agent
+    assert manager.get(conv.id).todos == todos
+
+    agent = manager._build_agent(manager.get(conv.id))
+    assert agent.ctx.services["todos"].read()[1]["text"] == "写综述"
+    results = [b for m in manager.raw_messages(conv.id) for b in m["content"] if b.get("type") == "tool_result"]
+    assert "1/3 已完成" in results[0]["content"][0]["text"]
+
+
+@pytest.mark.asyncio
+async def test_a_subagent_cannot_overwrite_its_parents_plan(tmp_path, monkeypatch):
+    def brain(system, messages, tools):
+        if "focused research sub-agent" in system:
+            return FakeTurn(tool_calls=[("update_todos", {"items": [{"text": "子代理自己的步骤"}]})]) \
+                if not any(m.tool_results() for m in messages) else FakeTurn(text="子任务做完了。")
+        if not any(m.tool_results() for m in messages):
+            return FakeTurn(tool_calls=[("update_todos", {"items": [{"text": "父对话的计划", "status": "doing"}]})])
+        calls = [b for m in messages for b in m.content if b.type == "tool_call"]
+        if len(calls) == 1:
+            return FakeTurn(tool_calls=[("delegate", {"task": "去做一件小事"})])
+        return FakeTurn(text="都好了。")
+
+    _, manager, project = _env(tmp_path, monkeypatch, brain)
+    conv = manager.create(project_id=project.id, title="带子代理")
+    await manager.send(conv.id, "开始")
+    await manager.tasks[conv.id]
+
+    assert [t["text"] for t in manager.get(conv.id).todos] == ["父对话的计划"]
+

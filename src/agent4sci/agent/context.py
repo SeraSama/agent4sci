@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 from ..llm.types import Message, TextBlock, ToolResultBlock, ToolSpec, estimate_tokens, user_text
 
@@ -82,12 +83,19 @@ def repair_history(messages: list[Message]) -> list[Message]:
     return messages
 
 
-def summary_message(summary: str, activated_skills: list[str]) -> Message:
+def summary_message(summary: str, activated_skills: list[str],
+                    todos: list[dict[str, Any]] | None = None) -> Message:
     text = f"<context_summary>\n{summary.strip()}\n</context_summary>\n\n"
     if activated_skills:
         text += (
             "Skills activated before the summary: " + ", ".join(activated_skills)
             + ". Call activate_skill again if you still need their instructions.\n\n"
         )
+    # Compaction is exactly when a long job most needs its plan, and the tool call that set it is gone.
+    unfinished = [t for t in (todos or []) if t.get("status") != "done"]
+    if unfinished:
+        lines = "\n".join(f"- {'进行中' if t.get('status') == 'doing' else '待办'}：{t.get('text', '')}"
+                           for t in unfinished)
+        text += f"Task list still open (update_todos):\n{lines}\n\n"
     text += "Continue the task from where you left off."
     return user_text(text, kind=SUMMARY_KIND)

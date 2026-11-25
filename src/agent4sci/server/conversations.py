@@ -47,6 +47,9 @@ class Conversation(BaseModel):
     steer_mode: Literal["insert", "queue"] = "insert"
     run_seconds: float = 0.0  # time the agent actually spent working, summed over every turn
     last_turn_seconds: float = 0.0
+    # The agent's own task list for the job in hand (update_todos). Kept here, not on the Agent, so it
+    # survives a rebuild and the UI can show it without replaying the transcript.
+    todos: list[dict[str, Any]] = Field(default_factory=list)
     # Every project has one standing "main" conversation whose agent can open further conversations in
     # that project and hand them work; `spawned_by` is the main conversation that opened this one.
     is_main: bool = False
@@ -269,7 +272,7 @@ class ConversationManager:
             self._persist_message(conv, message)
             agent = holder.get("agent")
             if agent is not None and message.role == "assistant":
-                self._persist_progress(conv, agent)
+                self._persist_progress(conv.id, agent)
 
         history = [Message.model_validate({k: v for k, v in m.items() if k not in ("seq", "created")})
                    for m in self.raw_messages(conv.id)]
@@ -278,7 +281,7 @@ class ConversationManager:
             memory_mode=conv.memory_mode, auto_mode=False, model_override=conv.model_id,
             permission_mode=conv.permission_mode,
         )
-        self._attach_desk(conv, ctx)
+        self._attach_services(conv, ctx)
         agent = self.builder.build_agent(profile, ctx, history=history, system_override=conv.system_snapshot,
                                          on_message=on_message)
         # Restore the "stop asking me this" answers from earlier turns.
@@ -292,13 +295,14 @@ class ConversationManager:
             self.save(conv)
         return agent
 
-    def _attach_desk(self, conv: Conversation, ctx: HarnessContext) -> None:
-        """The main conversation also gets the tools for running the project's other conversations.
+    def _attach_services(self, conv: Conversation, ctx: HarnessContext) -> None:
+        """Services this conversation's agent gets on top of the harness's own.
 
-        Done here rather than in a tool group so only the main conversation ever has them — which is what
-        stops a spawned conversation from spawning more — and so the harness preview shows the same thing
-        the agent actually gets.
+        The task list is for every conversation; the project desk only for the main one — which is what
+        stops a spawned conversation from spawning more. Done here rather than in a tool group so the
+        harness preview shows the same thing the agent actually gets.
         """
+        ctx.extra_services["todos"] = ConversationTodos(self, conv.id)
         if not (conv.is_main and ctx.project is not None):
             return
         from ..tools.project_agents import PROJECT_AGENT_TOOLS
@@ -352,8 +356,14 @@ class ConversationManager:
         self.save(conv)
         return "用户附带的文件（已获授权，可直接用 read_file / list_files 读取绝对路径）：\n" + "\n".join(lines)
 
-    def _persist_progress(self, conv: Conversation, agent: Agent) -> None:
-        """Write cost and tokens after every assistant turn: a crash must not lose the whole run's accounting."""
+    def _persist_progress(self, conv_id: str, agent: Agent) -> None:
+        """Write cost and tokens after every assistant turn: a crash must not lose the whole run's accounting.
+
+        Re-read the conversation rather than saving a copy captured when the agent was built: tools write to
+        the same record while the turn runs (the task list, "stop asking me this"), and a stale copy saved on
+        top of them would quietly throw those away.
+        """
+        conv = self.get(conv_id)
         usage = agent.usage
         inputs = usage.input_tokens + usage.cache_read_tokens + usage.cache_write_tokens
         before = self._persisted.get(conv.id, (0.0, 0, 0))
@@ -392,7 +402,7 @@ class ConversationManager:
             result = await agent.run(text)
             conv = self.get(conv_id)
             self._record_duration(conv, time.monotonic() - started)
-            self._persist_progress(conv, agent)
+            self._persist_progress(conv_id, agent)
             self._explain_ending(conv, result)
         except asyncio.CancelledError:
             self._record_duration(self.get(conv_id), time.monotonic() - started)
@@ -484,7 +494,7 @@ class ConversationManager:
         project = self.app.projects.get(conv.project_id) if conv.project_id else None
         ctx = HarnessContext(workspace=self.workspace(conv), project=project, conversation_id=conv.id,
                              topics=[f"conv:{conv.id}"], memory_mode=conv.memory_mode, model_override=conv.model_id)
-        self._attach_desk(conv, ctx)
+        self._attach_services(conv, ctx)
         return ctx
 
     def transcript(self, conv_id: str) -> list[Message]:
@@ -512,6 +522,22 @@ def _ago(ts: float) -> str:
 
 def _took(seconds: float) -> str:
     return f"{seconds / 60:.0f}分{seconds % 60:.0f}秒" if seconds >= 60 else f"{seconds:.0f}秒"
+
+
+class ConversationTodos:
+    """The task list behind ``update_todos``, stored on the conversation so a rebuild does not lose it."""
+
+    def __init__(self, manager: "ConversationManager", conv_id: str) -> None:
+        self.manager = manager
+        self.conv_id = conv_id
+
+    def read(self) -> list[dict[str, Any]]:
+        return list(self.manager.get(self.conv_id).todos)
+
+    def write(self, items: list[dict[str, Any]]) -> None:
+        conv = self.manager.get(self.conv_id)
+        conv.todos = list(items)
+        self.manager.save(conv)
 
 
 class ProjectDesk:
@@ -662,4 +688,4 @@ def text_of(message: dict[str, Any]) -> str:
     return "".join(b.get("text", "") for b in message.get("content", []) if b.get("type") == "text")
 
 
-__all__ = ["Conversation", "ConversationManager", "ProjectDesk", "TextBlock", "message_view", "text_of"]
+__all__ = ["Conversation", "ConversationManager", "ConversationTodos", "ProjectDesk", "TextBlock", "message_view", "text_of"]
