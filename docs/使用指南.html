@@ -1,0 +1,367 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Agent4Sci 使用指南</title>
+<style>
+  :root{
+    --ink:#1b1830; --body:#3a3752; --mute:#6b6880; --line:#e4e2ee;
+    --bg:#ffffff; --soft:#f7f6fb; --code:#f3f2f9;
+    --indigo:#4c43c9; --violet:#7c3aed; --green:#1a7f37; --amber:#9a6700; --red:#b4232c;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0; background:var(--bg); color:var(--body);
+    font:16px/1.75 -apple-system,BlinkMacSystemFont,"PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+    -webkit-font-smoothing:antialiased;
+  }
+  .wrap{max-width:840px; margin:0 auto; padding:0 24px 96px}
+  header{
+    background:linear-gradient(135deg,#1a1440 0%,#2d1f63 55%,#4c2a8f 100%);
+    color:#fff; padding:56px 24px 48px; margin-bottom:48px;
+  }
+  header .wrap{padding-bottom:0}
+  header h1{margin:0 0 10px; font-size:34px; letter-spacing:-.4px; font-weight:650}
+  header p{margin:0; color:#c9c3ee; font-size:17px; max-width:62ch}
+  header .meta{margin-top:22px; font-size:13px; color:#9a92cc}
+  h2{
+    margin:56px 0 14px; font-size:24px; color:var(--ink); font-weight:650; letter-spacing:-.2px;
+    padding-bottom:10px; border-bottom:2px solid var(--line);
+  }
+  h3{margin:34px 0 10px; font-size:18px; color:var(--ink); font-weight:620}
+  h4{margin:22px 0 6px; font-size:15px; color:var(--ink); font-weight:620}
+  p{margin:0 0 14px}
+  ul,ol{margin:0 0 14px; padding-left:24px}
+  li{margin:5px 0}
+  a{color:var(--indigo)}
+  code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; font-size:.88em;
+       background:var(--code); padding:2px 5px; border-radius:4px; color:#443c8a}
+  pre{background:var(--code); border:1px solid var(--line); border-radius:8px; padding:14px 16px;
+      overflow-x:auto; margin:0 0 16px}
+  pre code{background:none; padding:0; color:var(--ink); line-height:1.6}
+  table{border-collapse:collapse; width:100%; margin:0 0 18px; font-size:15px}
+  th,td{border:1px solid var(--line); padding:9px 12px; text-align:left; vertical-align:top}
+  th{background:var(--soft); font-weight:620; color:var(--ink)}
+  blockquote{margin:0 0 16px; padding:2px 0 2px 16px; border-left:3px solid var(--line); color:var(--mute)}
+  .lede{font-size:17px; color:var(--ink)}
+  .box{border:1px solid var(--line); border-left:4px solid var(--indigo); background:var(--soft);
+       border-radius:0 8px 8px 0; padding:14px 18px; margin:0 0 18px}
+  .box.warn{border-left-color:var(--amber)}
+  .box.good{border-left-color:var(--green)}
+  .box.stop{border-left-color:var(--red)}
+  .box p:last-child{margin-bottom:0}
+  .box b{color:var(--ink)}
+  .step{display:flex; gap:16px; margin:0 0 26px}
+  .num{flex:0 0 32px; height:32px; border-radius:50%; background:var(--indigo); color:#fff;
+       display:flex; align-items:center; justify-content:center; font-weight:620; font-size:15px}
+  .step > div:last-child{min-width:0; flex:1}
+  .step h3{margin:3px 0 8px}
+  .path{color:var(--mute); font-size:14px}
+  .path b{color:var(--ink); font-weight:600}
+  .tag{display:inline-block; font-size:12px; padding:1px 8px; border-radius:99px;
+       background:#ece9fb; color:#4c3fb0; margin-left:6px; vertical-align:middle; font-weight:600}
+  .toc{background:var(--soft); border:1px solid var(--line); border-radius:10px; padding:18px 22px; margin:0 0 8px}
+  .toc ol{margin:0; padding-left:20px}
+  .toc a{text-decoration:none}
+  .toc a:hover{text-decoration:underline}
+  hr{border:none; border-top:1px solid var(--line); margin:42px 0}
+  footer{color:var(--mute); font-size:14px; border-top:1px solid var(--line); padding-top:20px; margin-top:56px}
+  @media print{
+    header{background:#1a1440 !important; -webkit-print-color-adjust:exact; print-color-adjust:exact}
+    h2{page-break-after:avoid} .step{page-break-inside:avoid} pre{page-break-inside:avoid}
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="wrap">
+    <h1>Agent4Sci 使用指南</h1>
+    <p>一个跑在自己电脑上的科研 Agent 工作台。这份文档用一个真实课题走一遍：怎么把一个"我要做这个题"变成一份带引用的综述和一张能复现的图。</p>
+    <div class="meta">面向第一次用它的同事 · 全文约 15 分钟 · 跟着做约 1 小时</div>
+  </div>
+</header>
+
+<div class="wrap">
+
+<p class="lede">这个软件不是"聊天框 + 搜索"。它的核心是五件东西：<b>对话</b>里干活的 Agent、<b>记忆</b>记住课题常识、<b>主对话</b>把活分出去、<b>Loop</b> 把固定流程跑起来、<b>主理人</b>给你的领域造配置。下面先一句话说清每个是什么，再用一个课题串起来。</p>
+
+<div class="toc">
+  <ol>
+    <li><a href="#concepts">五个概念，一句话各一个</a></li>
+    <li><a href="#choose">我该用哪个？（决策表）</a></li>
+    <li><a href="#example">完整例子：从零做一个课题</a></li>
+    <li><a href="#detail">概念详解</a></li>
+    <li><a href="#safety">安全性与花费</a></li>
+    <li><a href="#faq">常见问题</a></li>
+  </ol>
+</div>
+
+<h2 id="concepts">五个概念，一句话各一个</h2>
+
+<table>
+  <tr><th style="width:22%">概念</th><th>一句话</th><th style="width:26%">在哪</th></tr>
+  <tr>
+    <td><b>Harness</b></td>
+    <td>一个 Agent 的"人设 + 装备"：角色提示、能用哪些工具、看得见哪些技能、记忆范围、轮数和预算上限、什么事要问你。</td>
+    <td>侧边栏 <b>Harness</b></td>
+  </tr>
+  <tr>
+    <td><b>记忆</b></td>
+    <td>跨对话记住的事实，分三层：全局（所有项目）、项目、本对话。纯 Markdown 文件，你能直接看和改。</td>
+    <td>侧边栏 <b>记忆</b></td>
+  </tr>
+  <tr>
+    <td><b>主对话</b><span class="tag">super agent</span></td>
+    <td>每个项目一个常驻对话。它除了自己干活，还能<b>在这个项目里开新对话、把活分出去</b>——派出来的是真对话，你随时能点进去接手。</td>
+    <td>项目页「打开主对话」</td>
+  </tr>
+  <tr>
+    <td><b>Loop</b><span class="tag">workflow</span></td>
+    <td>把多个 Agent 和检查点连成的<b>固定流程图</b>：谁先做、做完谁检查、不合格重做几轮、什么时候停、花多少钱为止。</td>
+    <td>侧边栏 <b>Loop 设计器</b></td>
+  </tr>
+  <tr>
+    <td><b>主理人</b></td>
+    <td>一个特殊的 Agent，它的活是<b>扩展这个软件本身</b>：为你的领域生成新的 Harness、技能、Loop、领域包，写完直接存好。</td>
+    <td>对话顶栏把 Harness 切成「主理人」</td>
+  </tr>
+</table>
+
+<h2 id="choose">我该用哪个？</h2>
+
+<p>这张表比任何说明都管用，先看这个：</p>
+
+<table>
+  <tr><th style="width:52%">你的情况</th><th>用什么</th></tr>
+  <tr><td>一个问题、一次探索、读一个文件</td><td>普通<b>对话</b></td></tr>
+  <tr><td>一件事要做很多步，但每次做法都不一样</td><td><b>主对话</b>派活</td></tr>
+  <tr><td>同一套步骤要重复跑（每批数据、每篇稿子、每月一次）</td><td><b>Loop</b></td></tr>
+  <tr><td>这个课题的具体事实：被试数、采样率、路径、命名约定</td><td><b>记忆</b></td></tr>
+  <tr><td>这个领域的通用做法：方法学要求、单位约定、必须过的检查</td><td><b>技能</b>（让主理人写）</td></tr>
+  <tr><td>软件里没有适合我这行的预设</td><td><b>主理人</b></td></tr>
+</table>
+
+<div class="box">
+  <p><b>最容易搞混的一对：主对话派活 vs Loop。</b>派活是<b>临机决定</b>——它看情况决定开几个对话、分别干什么；Loop 是<b>固定流程</b>——你画好的图，每次都照着走，有验证门和重试轮数。第一次做一件事用派活，做顺了以后把它固化成 Loop。</p>
+</div>
+
+<h2 id="example">完整例子：从零做一个课题</h2>
+
+<p class="lede">课题：<b>婴儿睡眠脑电的自动分期</b>。目标是两天内拿到一份带引用的综述（<code>lit/review.md</code>）和一张能复现的图（<code>figures/stage-dist.png</code>）。原始数据在一块外置硬盘上，不能被改动。</p>
+
+<div class="step">
+  <div class="num">0</div>
+  <div>
+    <h3>建项目，把数据挂进来</h3>
+    <p class="path"><b>项目</b> → 新建项目</p>
+    <p>名称填「婴儿睡眠分期」，领域选<b>神经科学</b>，目录勾上 <code>plan</code> <code>lit</code> <code>notes</code> <code>results</code> <code>figures</code> <code>paper</code>。领域决定了默认打开哪些工具、推荐哪些技能，以及往系统提示里加哪段领域说明。</p>
+    <p>建好之后，在项目页的<b>「文件夹」</b>卡片里，把外置硬盘上的原始数据目录<b>直接拖进去</b>（也可以点「选择文件夹」）。拖进来默认是<b>只读</b>：</p>
+    <pre><code>主文件夹   ~/Agent4Sci/婴儿睡眠分期         可读写
+副文件夹   /Volumes/EEG2024/raw             只读   ← 原始数据
+副文件夹   /Volumes/Share/组内共享结果        可读写</code></pre>
+    <p>只读的文件夹，Agent 能读能搜但写不进去，命令行伸进去也不会被当成"跑出项目"拦下来。原始数据不会被任何一步改动。</p>
+  </div>
+</div>
+
+<div class="step">
+  <div class="num">1</div>
+  <div>
+    <h3>把课题常识写进记忆</h3>
+    <p class="path">任意对话 → 悬停一条消息 → 书签图标「记住这条」</p>
+    <p>新建一个对话，先把这个课题的硬事实告诉它：</p>
+    <pre><code>这个课题的几个固定事实，记到项目记忆里：
+- 数据是 2024 年采的 32 名婴儿，月龄 3–11 个月，EGI 128 导，采样率 250 Hz
+- 分期标准用 AASM 婴儿版，N1 不单独分，合并进 N2
+- 被试 07 和 19 的第二段记录有电极脱落，分析一律排除
+- 结果文件命名 sub-&lt;ID&gt;_task-sleep_desc-&lt;内容&gt;.csv</code></pre>
+    <p>然后把这条消息<b>记住</b>：鼠标移到消息上，下面出现一排小按钮，点书签那个，选「项目」作用域。或者跑完一轮之后点顶栏的<b>「整理记忆」</b>，它会从这段对话里提议一批记忆，你勾选保存。</p>
+    <div class="box good">
+      <p><b>为什么值得花这两分钟：</b>之后这个项目里<b>每一个</b>对话、每一个派生对话、每一次 Loop 运行，开场就知道"被试 07 和 19 要排除"。不记的话，你得在每个对话里重说一遍——而漏说一次就是一个错误的结果。</p>
+    </div>
+    <p>记下来的东西在侧边栏<b>记忆</b>页能看到、改、删。它们就是项目里的 Markdown 文件（<code>.a4s/memory/</code>），能进 git，能和论文一起归档。</p>
+  </div>
+</div>
+
+<div class="step">
+  <div class="num">2</div>
+  <div>
+    <h3>主对话派活<span class="tag">super agent</span></h3>
+    <p class="path">项目页 → <b>打开主对话</b>（或侧边栏顶部的「主对话」按钮）</p>
+    <p>主对话是这个项目的常驻对话。给它一个大活，它会先列清单、再把能并行的部分分出去：</p>
+    <pre><code>这个课题要在两天内出一份综述和一张图。分头做：
+
+1. 文献这块：检索 2020 年以后婴儿/新生儿睡眠脑电自动分期的工作，
+   重点是用了哪些特征、报了什么准确率、样本量多大，写进 lit/review.md，
+   引用都要能查证。
+2. 数据这块：读 /Volumes/EEG2024/raw 下的分期标注文件（不要改动原始数据），
+   统计每个睡眠阶段的时长占比，按被试和月龄分组，
+   结果写 results/stage-dist.csv，图画到 figures/stage-dist.png。
+
+两件事互相不依赖，同时开两个对话做。做完各自报给我。</code></pre>
+    <p>接下来你会看到三件事：</p>
+    <ul>
+      <li><b>顶栏下面出现一条任务清单</b>，显示它打算分几步、现在做到哪一步（<code>1/4</code>）。点开能看全部，做完的会划掉。</li>
+      <li><b>侧边栏冒出两个新对话</b>，缩进在主对话下面，标题就是它给的任务名。它们是真对话——点进去能看全过程，能直接插话改要求，能接手自己干。</li>
+      <li>派生对话跑完，结论会回到主对话里。</li>
+    </ul>
+    <div class="box warn">
+      <p><b>派生对话会花钱，而且是各花各的。</b>每个派生对话有自己的预算（跟它的 Harness 走）。上限是同时最多 6 个在跑、项目里未归档的最多 24 个。安全级别跟随主对话——主对话设成「全部允许」，派出去的也是。</p>
+    </div>
+  </div>
+</div>
+
+<div class="step">
+  <div class="num">3</div>
+  <div>
+    <h3>用 Loop 把综述流程跑成固定流水线<span class="tag">workflow</span></h3>
+    <p class="path">侧边栏 <b>Loop 设计器</b> → 左边挑「文献综述」模板 → 复制为我的 Loop → <b>运行</b></p>
+    <p>上一步是临机派活。如果这类综述你每个课题都要做一遍，就该用 Loop 了。内置的「文献综述」模板是这样一条流水线：</p>
+    <pre><code>开始
+ └─ 综述范围      写出纳入标准 plan/brief.md     ← 人工检查点
+ └─ 检索与阅读    文献专员做系统检索，写 lit/review.md
+ └─ ┌ 写作 ⟲ 评审 ────────────────── 最多 3 轮 ┐
+    │   撰写综述  →  评审                       │
+    └── 直到评审 decision == 'accept' 才退出 ───┘
+ └─ 规则检查      引用能不能查证、产物在不在、数字有没有来源
+ └─ 整理记忆      把这轮学到的写进项目记忆
+结束</code></pre>
+    <p>点<b>运行</b>，填一个参数（综述主题），它就自己跑了。几个 Loop 独有、对话做不到的东西：</p>
+    <ul>
+      <li><b>验证门</b>：节点可以是一条命令，用退出码或指标判定通过与否，不通过就重做。</li>
+      <li><b>人工检查点</b>：跑到这儿停下来等你批准/反馈/选择，错一步代价大的地方放一个。</li>
+      <li><b>循环与保留</b>：写—评—改最多几轮、什么条件算过、每轮的产物保留还是回滚。</li>
+      <li><b>并行展开</b>：对一个列表（比如 20 篇待读文献）并行跑同一个子图。</li>
+      <li><b>预算与 git 提交</b>：整条流水线一个总预算；每个节点跑完自动 git 提交，哪一步做坏了能回到上一步。</li>
+    </ul>
+    <p>运行过程在侧边栏<b>运行监控</b>里看：每个节点的状态、花了多少、卡在哪。</p>
+    <p>内置模板是只读的，点「复制为我的 Loop」之后才能改。除了文献综述，还有数据分析、机器学习实验、自主研究、写作—评审、Best-of-N、想法锦标赛等十个模板。</p>
+  </div>
+</div>
+
+<div class="step">
+  <div class="num">4</div>
+  <div>
+    <h3>让主理人给这个方向造一套配置</h3>
+    <p class="path">新建对话 → 顶栏 Harness 切成 <b>主理人</b></p>
+    <p>内置的 Harness（研究助手、文献专员、数据分析师、实验员、写作者、评审）是通用的。你这个方向有自己的规矩，就让主理人固化下来：</p>
+    <pre><code>我做婴儿睡眠脑电分期。给我配两样东西：
+
+1. 一个专门的 Harness「睡眠分期分析师」：
+   做分期相关的数据分析，必须先检查采样率和导联数对不对、
+   必须排除记忆里标记的坏被试、每个统计量都要报 n 和置信区间，
+   不许在看过结果之后改分组标准。
+
+2. 一个技能，写清楚婴儿睡眠分期的方法学要求：
+   AASM 婴儿版和成人版的区别、月龄分组的惯例、
+   常见的坑（比如 active sleep 和 REM 的对应关系）、
+   结果可信之前必须过的检查清单。</code></pre>
+    <p>它会先用一次提问把需要你定的几件事问清楚（一次问完，每个都给选项），然后<b>直接把东西存好</b>，并告诉你叫什么、在哪、怎么用。去 Harness 页和技能页就能看到。</p>
+    <p>主理人能造四种东西：<b>Harness</b>（一个角色）、<b>技能</b>（按需加载的领域知识）、<b>Loop</b>（可重复的流程）、<b>领域包</b>（新建项目时可选的研究领域，带默认工具、推荐技能、领域说明）。</p>
+  </div>
+</div>
+
+<div class="step">
+  <div class="num">5</div>
+  <div>
+    <h3>把这次的做法沉淀成技能</h3>
+    <p class="path">对话顶栏 <b>⋯</b> → 从这段对话提炼技能</p>
+    <p>综述做完了、图也出了。这次摸索出来的做法——怎么从那种标注文件里读分期、哪几个字段要对齐、画图用什么参数——下次不该再摸索一遍。</p>
+    <p>点「从这段对话提炼技能」，它会<b>另外跑一次模型</b>读这个对话的过程记录，把值得复用的做法写成技能，存到项目的 <code>skills/learned</code>。</p>
+    <div class="box">
+      <p>提炼出来的技能默认是<b>待批准</b>状态，对 Agent 不可见。去 <b>技能 → 待批准</b> 看内容和安全扫描报告，批准之后才生效。高风险内容会被直接拒掉。</p>
+    </div>
+  </div>
+</div>
+
+<h3>两天之后你手里有什么</h3>
+<ul>
+  <li><code>lit/review.md</code> 和 <code>references.bib</code>——引用都经过核验</li>
+  <li><code>results/stage-dist.csv</code>、<code>figures/stage-dist.png</code>——每个数字都能追到产生它的代码</li>
+  <li>一份项目记忆，下个对话开口就知道这个课题的规矩</li>
+  <li>一个「睡眠分期分析师」Harness 和两个技能，下个课题直接用</li>
+  <li>一条跑通的 Loop，下次换个主题点一下运行</li>
+  <li>完整的 git 历史，每一步都能回退</li>
+</ul>
+
+<h2 id="detail">概念详解</h2>
+
+<h3>记忆：三层作用域</h3>
+<table>
+  <tr><th style="width:18%">作用域</th><th>放什么</th></tr>
+  <tr><td><b>全局</b></td><td>跨所有项目都成立的：你是谁、偏好什么统计方法、实验室的命名约定、常用的机器配置。</td></tr>
+  <tr><td><b>项目</b></td><td>这个课题的事实：被试、设备参数、排除标准、文件约定。<b>最常用的一层。</b></td></tr>
+  <tr><td><b>本对话</b></td><td>只在这一串对话里成立的临时结论。</td></tr>
+</table>
+<p>对话顶栏的<b>记忆模式</b>决定这个对话看得见哪几层：选「全局记忆」看得见三层，「项目记忆」看得见项目+本对话，「仅本对话」只看自己，「无」什么都不读写（临时对话就是这个）。</p>
+<p>只有<b>索引</b>进系统提示，正文是 Agent 按需去读的——所以记一百条也不会把上下文撑爆，但标题要写得像话，不然它找不到。</p>
+
+<h3>主对话能做什么</h3>
+<p>主对话的 Agent 比普通对话多五个工具：开新对话并派活、列出项目里的对话、读某个对话最近的内容、给某个对话再派一轮或纠偏、停掉跑偏的对话。</p>
+<p>派活可以<b>等</b>（默认，等它做完把报告拿回来）也可以<b>不等</b>（先把几件事全派出去，再逐个去收）。派生对话沿用主对话的 Harness、模型和安全级别。</p>
+<p>这组工具<b>只有主对话有</b>，所以派生对话不能再往下派——不会出现失控的层层分裂。</p>
+
+<h3>Loop 和派活的分工</h3>
+<table>
+  <tr><th style="width:50%">Loop</th><th>主对话派活</th></tr>
+  <tr><td>流程是你画的，每次一样</td><td>做法是它定的，每次可能不同</td></tr>
+  <tr><td>有验证门、重试轮数、人工检查点</td><td>靠你在对话里盯和插话</td></tr>
+  <tr><td>适合跑很久又不想盯着</td><td>适合第一次做、边做边想</td></tr>
+  <tr><td>在「运行监控」里看</td><td>在侧边栏对话列表里看</td></tr>
+</table>
+
+<h2 id="safety">安全性与花费</h2>
+
+<h3>三档权限</h3>
+<p>在输入框右下角切换，随时可改，<b>不用重启</b>：</p>
+<table>
+  <tr><th style="width:20%">档位</th><th>什么时候问你</th><th style="width:26%">用在哪</th></tr>
+  <tr><td><b>总是询问</b></td><td>写文件、跑命令、装技能、联网都要你点同意；读取和检索不打扰。</td><td>刚开始用、或者在重要目录里动手</td></tr>
+  <tr><td><b>按需提问</b><br><span class="path">默认</span></td><td>项目内的事直接做；命令伸到项目外、安装外部代码、命中危险命令时才问。</td><td>日常</td></tr>
+  <tr><td><b>全部允许</b></td><td>什么都不问，危险命令拦截也关掉。</td><td>只在无人值守且信任这条流程时</td></tr>
+</table>
+<p>审批弹窗上有「允许，并且不再问」——选了之后这一类在这个对话里就不再打扰你，而且换设置、重开应用都还记得。</p>
+
+<h3>花费</h3>
+<ul>
+  <li>每个对话顶栏显示<b>已花多少钱</b>和<b>上下文占用</b>。</li>
+  <li>Harness 上能设<b>每次运行的预算上限</b>和<b>最大轮数</b>，Loop 另有整条流水线的总预算。到顶会停下来并说明原因。</li>
+  <li>派生对话、子代理、提炼技能都是<b>另外的模型调用</b>，各花各的。</li>
+  <li>本地跑 Ollama 模型是免费的，适合干粗活（整理、分类、初筛）。</li>
+</ul>
+
+<h3>数据在哪</h3>
+<p>全部在本机。项目文件在你指定的文件夹，对话和记忆在应用数据目录，API Key 存在系统钥匙串（macOS 钥匙串 / Windows 凭据管理器），备份里不含密钥。只有你调用的模型厂商会收到你发出去的内容。</p>
+
+<div class="box stop">
+  <p><b>第三方代码的风险：</b>技能和 MCP 服务器是外部代码，装之前会扫描，但扫描不是沙箱。只装你信得过来源的东西。Agent 自己提炼的技能默认待批准，你看过才生效。</p>
+</div>
+
+<h2 id="faq">常见问题</h2>
+
+<h4>它跑着跑着我想改要求，怎么办？</h4>
+<p>直接在输入框里打字发出去。输入框右下角有个开关决定行为：<b>插话</b>会立刻打断当前这一步，<b>排队</b>会等这一轮跑完再发。按「停止」会真的停住——排在后面的消息不会偷偷发出去。</p>
+
+<h4>对话写到一半切走了，内容还在吗？</h4>
+<p>在。草稿和拖进来的附件都按对话保存，切回来原样还在。</p>
+
+<h4>怎么把一段结论拿出去？</h4>
+<p>悬停任意一条消息，下面有<b>复制</b>、<b>引用到输入框</b>、<b>记住这条</b>。代码块右上角有单独的复制按钮。整个对话用顶栏 <b>⋯</b> → 复制整个对话 / 导出为 Markdown 文件。</p>
+
+<h4>它说它做了，但我不确定真做了没有？</h4>
+<p>看工具调用卡片——每一步调了什么、返回了什么都在里面展开。文件系统是实打实的，去项目文件夹里看就知道。重要的数字可以用「发现账本」和溯源检查来验证来源。</p>
+
+<h4>我改过的 Harness 为什么没有新功能？</h4>
+<p>自己改存过的 Harness 不会自动获得新加的工具组。去 Harness 页在工具箱里勾上就行（比如新加的「任务清单」）。内置的几个会自动带上。</p>
+
+<h4>换了设置要重启吗？</h4>
+<p>不用。安全级别、Harness、模型、最大轮数这些改完下一轮就生效。</p>
+
+<footer>
+  Agent4Sci · 本机运行，数据不离开你的电脑 · 软件按原样提供，结论请人工复核，不构成医疗或法律建议
+</footer>
+
+</div>
+</body>
+</html>

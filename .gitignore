@@ -19,7 +19,5 @@ Thumbs.db
 # root-level npm (if ever used)
 node_modules/
 
-# local Claude Code state, except the shared dev-server config
-.claude
-.claude/*
-!.claude/launch.json
+# local Claude Code state (editor/debug config, not part of the project)
+.claude/
